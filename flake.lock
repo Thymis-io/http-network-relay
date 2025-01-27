@@ -66,11 +66,11 @@
         "treefmt-nix": "treefmt-nix"
       },
       "locked": {
-        "lastModified": 1738007072,
-        "narHash": "sha256-JmNyNEhJ4wDwuDobauWBPUcdeJbN+8w+mVZnsAUoPJ0=",
+        "lastModified": 1738007779,
+        "narHash": "sha256-5A1PoxCCylMKPDSkeywHiTKYkmRHrfOZmPrTVHehNa0=",
         "owner": "Thymis-io",
         "repo": "poetry2nix",
-        "rev": "b910d2688674bab41af18919071bf0214ea783ba",
+        "rev": "0d2f8ac4910a4d1e3ba8fea4e746857db674b805",
         "type": "github"
       },
       "original": {
