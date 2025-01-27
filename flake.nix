@@ -1,8 +1,8 @@
 {
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/release-24.05";
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-24.11";
     poetry2nix = {
-      url = "github:nix-community/poetry2nix";
+      url = "github:Thymis-io/poetry2nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
@@ -21,7 +21,7 @@
           default = mkPoetryApplication {
             name = "http-network-relay";
             projectDir = ./.;
-            python = pkgs.python312;
+            python = pkgs.python313;
             checkPhase = ''
               runHook preCheck
               pytest --session-timeout=10
