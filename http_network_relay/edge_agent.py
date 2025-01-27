@@ -35,7 +35,7 @@ def eprint(*args, only_debug=False, **kwargs):
 
 
 class EdgeAgent:
-    CustomAgentToRelayMessage: Type[BaseModel] = None
+    CustomRelayToAgentMessage: Type[BaseModel] = None
 
     def __init__(self, relay_url, name, secret):
         self.relay_url = relay_url
@@ -87,9 +87,9 @@ class EdgeAgent:
                         json_data
                     ).inner
                 except ValidationError as e:
-                    if self.CustomAgentToRelayMessage is None:
+                    if self.CustomRelayToAgentMessage is None:
                         raise e
-                    message = self.CustomAgentToRelayMessage.model_validate_json(
+                    message = self.CustomRelayToAgentMessage.model_validate_json(
                         json_data
                     )  # pylint: disable=E1101
 
@@ -139,8 +139,8 @@ class EdgeAgent:
                                 )
                             ).model_dump_json()
                         )
-                elif self.CustomAgentToRelayMessage is not None and isinstance(
-                    message, self.CustomAgentToRelayMessage
+                elif self.CustomRelayToAgentMessage is not None and isinstance(
+                    message, self.CustomRelayToAgentMessage
                 ):
                     await self.handle_custom_relay_message(message)
                 else:
