@@ -1,22 +1,52 @@
 import argparse
 import asyncio
-
 import base64
 import os
 import sys
+from typing import Literal, Union
 
 import websockets
+from pydantic import BaseModel, Field
 from websockets.asyncio.client import connect
 
-from .pydantic_models import (
-    AccessClientToRelayMessage,
-    AtRStartMessage,
-    AtRTCPDataMessage,
-    RelayToAccessClientMessage,
-    RtAErrorMessage,
-    RtAStartOKMessage,
-    RtATCPDataMessage,
-)
+
+class AccessClientToRelayMessage(BaseModel):
+    inner: Union["AtRStartMessage", "AtRTCPDataMessage"] = Field(discriminator="kind")
+
+
+class AtRStartMessage(BaseModel):
+    kind: Literal["start"] = "start"
+    connection_target: str
+    target_ip: str
+    target_port: int
+    protocol: str
+    secret: str
+
+
+class AtRTCPDataMessage(BaseModel):
+    kind: Literal["tcp_data"] = "tcp_data"
+    data_base64: str
+
+
+class RelayToAccessClientMessage(BaseModel):
+    inner: Union["RtAErrorMessage", "RtAStartOKMessage", "RtATCPDataMessage"] = Field(
+        discriminator="kind"
+    )
+
+
+class RtAErrorMessage(BaseModel):
+    kind: Literal["error"] = "error"
+    message: str
+
+
+class RtAStartOKMessage(BaseModel):
+    kind: Literal["start_ok"] = "start_ok"
+
+
+class RtATCPDataMessage(BaseModel):
+    kind: Literal["tcp_data"] = "tcp_data"
+    data_base64: str
+
 
 parser = argparse.ArgumentParser(
     description="Connect to the HTTP network relay, "
@@ -130,6 +160,7 @@ async def async_main():
 
 def main():
     asyncio.run(async_main())
+
 
 if __name__ == "__main__":
     main()
