@@ -13,7 +13,7 @@ python = "^3.11"
 fastapi = {extras = ["standard"], version = "^0.115.5"}
 pydantic = "^2.9.2"
 websockets = "^14.1"
-uvicorn = "^0.32.0"
+uvicorn = ">=0.34.0"
 pytest = "^8.3.3"
 pytest-timeout = "^2.3.1"
 
