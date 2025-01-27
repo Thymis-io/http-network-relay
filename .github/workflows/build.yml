@@ -11,13 +11,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install Nix
-        uses: cachix/install-nix-action@v30
+      - uses: ./thymis/.github/actions/setup-nix
         with:
-          extra_nix_config: |
-            system-features = kvm
-            extra-trusted-public-keys = cache.thymis.io-1:pEeKkNXiK17TLKls0KM8cEp0NGy08gc5chAmCyuQo8M=
-            extra-substituters = https://cache.thymis.io
-      - uses: DeterminateSystems/magic-nix-cache-action@v2
+          attic_token: ${{ secrets.ATTIC_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
       - name: build controller
-        run: nix build .#default --print-build-logs
+        uses: ./thymis/.github/actions/run-command-with-nix-cache-upload
+        with:
+          attic_token: ${{ secrets.ATTIC_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          script: nix build .#default --print-build-logs
