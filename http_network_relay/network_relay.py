@@ -175,7 +175,9 @@ class NetworkRelay:
 
         self.active_relayed_connections: dict[uuid.UUID, TcpConnection] = {}
 
-    async def ws_for_edge_agents(self, edge_agent_connection: WebSocket):
+    async def accept_ws_and_start_msg_loop_for_edge_agents(
+        self, edge_agent_connection: WebSocket
+    ):
         await edge_agent_connection.accept()
         self.agent_connections.append(edge_agent_connection)
         start_message_json_data = await edge_agent_connection.receive_text()
@@ -218,6 +220,12 @@ class NetworkRelay:
         self.registered_agent_connections[connection_id] = edge_agent_connection
         eprint(f"Registered agent connection: {connection_id}")
 
+        msg_loop_task = asyncio.create_task(
+            self._msg_loop(edge_agent_connection, connection_id)
+        )
+        return msg_loop_task
+
+    async def _msg_loop(self, edge_agent_connection: WebSocket, connection_id: str):
         while True:
             try:
                 json_data = await edge_agent_connection.receive_text()
