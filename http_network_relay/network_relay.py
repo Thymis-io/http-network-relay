@@ -192,10 +192,10 @@ class NetworkRelay:
                 start_message, from_attributes=True
             )
 
-        if not await self.check_agent_start_message_auth(
+        if not await self.check_start_message_can_proceed_to_tcp_relaying(
             start_message, edge_agent_connection
         ):
-            eprint(f"Authentication failed for agent: {start_message}")
+            eprint(f"Agent {start_message} cannot proceed to tcp relaying")
             # close the connection
             await edge_agent_connection.close()
             return
@@ -254,7 +254,8 @@ class NetworkRelay:
                 )
                 if response_queue is None:
                     eprint(
-                        f"Unknown connection_id {message.connection_id} for message: {message}"
+                        f"Got a message {message} for connection_id: "
+                        f"{message.connection_id} but no corresponding waiting queue found"
                     )
                     continue
                 # put message in queue
@@ -368,7 +369,7 @@ class NetworkRelay:
     async def handle_custom_agent_message(self, message: BaseModel):
         raise NotImplementedError()
 
-    async def check_agent_start_message_auth(
+    async def check_start_message_can_proceed_to_tcp_relaying(
         self, start_message: BaseModel, edge_agent_connection: WebSocket
     ):
         raise NotImplementedError()
