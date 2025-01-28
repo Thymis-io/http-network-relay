@@ -35,10 +35,11 @@ def eprint(*args, only_debug=False, **kwargs):
 
 class NetworkRelayForAccessClients(NetworkRelay):
     def __init__(self, credentials):
-        super().__init__(credentials)
+        super().__init__()
         self.active_connections = {}
         self.access_client_connections = []
         self.initiate_connection_answer_queue = asyncio.Queue()
+        self.credentials = credentials
 
     async def ws_for_access_clients(self, access_client_connection: WebSocket):
         await access_client_connection.accept()
@@ -147,6 +148,26 @@ class NetworkRelayForAccessClients(NetworkRelay):
                 break
         if relayed_connection.id in self.active_connections:
             del self.active_connections[relayed_connection.id]
+
+    async def check_agent_start_message_auth(
+        self, start_message, edge_agent_connection
+    ):
+        #  check if we know the agent
+        if start_message.name not in self.credentials["edge-agents"]:
+            eprint(f"Unknown agent: {start_message.name}")
+            return False
+
+        # check if the secret is correct
+        if self.credentials["edge-agents"][start_message.name] != start_message.secret:
+            eprint(f"Invalid secret for agent: {start_message.name}")
+            return False
+
+        return True
+
+    async def get_agent_connection_id_from_start_message(
+        self, start_message, edge_agent_connection
+    ):
+        return start_message.name
 
 
 def main():
