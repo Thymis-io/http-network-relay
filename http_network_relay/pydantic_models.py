@@ -42,10 +42,13 @@ class EtRConnectionResetMessage(BaseModel):
     connection_id: str
 
 
+RelayToEdgeAgentMessage_Inner = Union[
+    "RtEInitiateConnectionMessage", "RtETCPDataMessage"
+]
+
+
 class RelayToEdgeAgentMessage(BaseModel):
-    inner: Union["RtEInitiateConnectionMessage", "RtETCPDataMessage"] = Field(
-        discriminator="kind"
-    )
+    inner: RelayToEdgeAgentMessage_Inner = Field(discriminator="kind")
 
 
 class RtEInitiateConnectionMessage(BaseModel):
