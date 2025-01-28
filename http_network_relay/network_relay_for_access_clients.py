@@ -201,18 +201,7 @@ def main():
 
     network_relay = NetworkRelayForAccessClients(CREDENTIALS)
 
-    # app.add_websocket_route("/ws_for_edge_agents", network_relay.ws_for_edge_agents)
-    # need to double await the function result
-    # app.add_websocket_route("/ws_for_edge_agents",
-    #                         async lambda ws: await network_relay.ws_for_edge_agents(ws))
-    # no such thing as async lambda
-    @app.websocket("/ws_for_edge_agents")
-    async def ws_for_edge_agents(websocket: WebSocket):
-        msg_loop_task = (
-            await network_relay.accept_ws_and_start_msg_loop_for_edge_agents(websocket)
-        )
-        await msg_loop_task
-
+    app.add_websocket_route("/ws_for_edge_agents", network_relay.ws_for_edge_agents)
     app.add_websocket_route(
         "/ws_for_access_clients", network_relay.ws_for_access_clients
     )
