@@ -97,8 +97,11 @@ class TcpConnection(AbstractContextManager):
             self.recv_buffer = self.recv_buffer[size:]
         return result
 
-    async def close(self):
-        return await self.relay.close_relayed_connection(self.id, self.agent_connection)
+    def close(self):
+        return asyncio.run_coroutine_threadsafe(
+            self.relay.close_relayed_connection(self.id, self.agent_connection),
+            self.loop,
+        )
 
     @property
     def closed(self):
