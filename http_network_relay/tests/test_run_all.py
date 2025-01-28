@@ -9,7 +9,7 @@ import time
 import pytest
 
 
-@pytest.mark.timeout(10)
+@pytest.mark.timeout(3)
 def test_can_run_and_proxy_tcp():
     # start 3 threads to supervise 3 processes each, 1 more to listen to tcp
     # 0. start tcp listening thread
@@ -132,7 +132,7 @@ def test_can_run_and_proxy_tcp():
     # kill other threads
     for p in started_subprocesses:
         p.terminate()
-        time.sleep(1)
+        time.sleep(0.2)
         p.kill()
 
     tcp_thread.join()
