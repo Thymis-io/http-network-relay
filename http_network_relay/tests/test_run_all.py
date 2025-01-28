@@ -81,7 +81,7 @@ def test_can_run_and_proxy_tcp():
             [
                 "python",
                 "-m",
-                "http_network_relay.edge_agent",
+                "http_network_relay.edge_agent_for_access_clients",
                 "--secret",
                 agent_secret,
                 "--relay-url",

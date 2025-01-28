@@ -1,6 +1,6 @@
 from typing import Literal, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class EdgeAgentToRelayMessage(BaseModel):
@@ -14,9 +14,10 @@ class EdgeAgentToRelayMessage(BaseModel):
 
 
 class EtRStartMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
     kind: Literal["start"] = "start"
-    name: str
-    secret: str
 
 
 class EtRInitiateConnectionErrorMessage(BaseModel):

@@ -19,6 +19,7 @@ from .access_client import (
     RtATCPDataMessage,
 )
 from .network_relay import NetworkRelay, TcpConnectionAsync
+from .pydantic_models import EtRStartMessage
 
 CREDENTIALS_FILE = os.getenv("HTTP_NETWORK_RELAY_CREDENTIALS_FILE", "credentials.json")
 CREDENTIALS = None
@@ -33,7 +34,14 @@ def eprint(*args, only_debug=False, **kwargs):
         print(*args, file=sys.stderr, **kwargs)
 
 
+class EdgeAgentToRelayStartMessage(EtRStartMessage):
+    name: str
+    secret: str
+
+
 class NetworkRelayForAccessClients(NetworkRelay):
+    CustomAgentToRelayStartMessage = EdgeAgentToRelayStartMessage
+
     def __init__(self, credentials):
         super().__init__()
         self.active_connections = {}
@@ -150,7 +158,7 @@ class NetworkRelayForAccessClients(NetworkRelay):
             del self.active_connections[relayed_connection.id]
 
     async def check_agent_start_message_auth(
-        self, start_message, edge_agent_connection
+        self, start_message: EdgeAgentToRelayStartMessage, edge_agent_connection
     ):
         #  check if we know the agent
         if start_message.name not in self.credentials["edge-agents"]:
@@ -165,7 +173,7 @@ class NetworkRelayForAccessClients(NetworkRelay):
         return True
 
     async def get_agent_connection_id_from_start_message(
-        self, start_message, edge_agent_connection
+        self, start_message: EdgeAgentToRelayStartMessage, edge_agent_connection
     ):
         return start_message.name
 

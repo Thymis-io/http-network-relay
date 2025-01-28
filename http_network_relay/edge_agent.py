@@ -1,9 +1,6 @@
-import argparse
 import asyncio
 import base64
 import os
-import random
-import socket
 import sys
 import time
 from typing import Type
@@ -37,10 +34,8 @@ def eprint(*args, only_debug=False, **kwargs):
 class EdgeAgent:
     CustomRelayToAgentMessage: Type[BaseModel] = None
 
-    def __init__(self, relay_url, name, secret):
+    def __init__(self, relay_url):
         self.relay_url = relay_url
-        self.name = name
-        self.secret = secret
         self.active_connections = {}  # connection_id -> (tcp_reader, tcp_writer)
 
     async def async_main(self):
@@ -68,7 +63,9 @@ class EdgeAgent:
     async def connect_to_server(self):
         async with connect(self.relay_url) as websocket:
             start_message = EdgeAgentToRelayMessage(
-                inner=EtRStartMessage(name=self.name, secret=self.secret)
+                inner=EtRStartMessage.model_validate(
+                    await self.create_start_message(), from_attributes=True
+                )
             )
             await websocket.send(start_message.model_dump_json())
             eprint(f"Sent start message: {start_message}")
@@ -186,44 +183,8 @@ class EdgeAgent:
 
         asyncio.create_task(read_from_tcp_and_send())
 
-    async def handle_custom_relay_message(self, message: BaseModel):
+    async def create_start_message(self):
         raise NotImplementedError()
 
-
-def main():
-    parser = argparse.ArgumentParser(
-        description="Edge agent for HTTP network relay, allows `access-client` to connect to it"
-    )
-    parser.add_argument(
-        "--relay-url",
-        help="The server URL",
-        default=os.getenv(
-            "HTTP_NETWORK_RELAY_URL", "ws://127.0.0.1:8000/ws_for_edge_agents"
-        ),
-    )
-    parser.add_argument(
-        "--name",
-        help="The edge-agents name",
-        default=os.getenv(
-            "HTTP_NETWORK_RELAY_NAME",
-            f"unnamed-fqdn-{socket.getfqdn()}-edge-agent-{random.randbytes(4).hex()}",
-        ),
-    )
-    parser.add_argument(
-        "--secret",
-        help="The secret used to authenticate with the relay",
-        default=os.getenv("HTTP_NETWORK_RELAY_SECRET", None),
-    )
-    args = parser.parse_args()
-
-    if args.relay_url is None:
-        raise ValueError("relay_url is required")
-    if args.secret is None:
-        raise ValueError("secret is required")
-
-    agent = EdgeAgent(args.relay_url, args.name, args.secret)
-    asyncio.run(agent.async_main())
-
-
-if __name__ == "__main__":
-    main()
+    async def handle_custom_relay_message(self, message: BaseModel):
+        raise NotImplementedError()
