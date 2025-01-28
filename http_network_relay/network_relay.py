@@ -49,6 +49,7 @@ class TcpConnection(AbstractContextManager):
         self.agent_connection = agent_connection
         self.timeout = None
         self.recv_event = threading.Event()
+        self.recv_buffer_lock = threading.Lock()
         self.send_buffer = bytearray()
         self.send_buffer_lock = threading.Lock()
         self.loop = loop
@@ -72,24 +73,28 @@ class TcpConnection(AbstractContextManager):
             )
 
     def fill_recv(self, data: bytes):
-        self.recv_buffer.extend(data)
-        self.recv_event.set()
+        with self.recv_buffer_lock:
+            self.recv_buffer.extend(data)
+            self.recv_event.set()
 
     def recv(self, size):
         # return self.todo.recv(size)
         # send AT MOST size bytes, at least 1 byte if blocking
-        if len(self.recv_buffer) == 0:
-            if self.closed:
-                return b""
-            # wait for data
-            self.recv_event.clear()
-            res = self.recv_event.wait(self.timeout)
-            if not res:
-                raise TimeoutError()
+        with self.recv_buffer_lock:
+            if len(self.recv_buffer) == 0:
+                if self.closed:
+                    return b""
+                # wait for data
+                self.recv_event.clear()
+
+        res = self.recv_event.wait(self.timeout)
+        if not res:
+            raise TimeoutError()
         if size == 0:
             return b""  # this is how socket.recv(0) behaves i guess
-        result = self.recv_buffer[:size]
-        self.recv_buffer = self.recv_buffer[size:]
+        with self.recv_buffer_lock:
+            result = self.recv_buffer[:size]
+            self.recv_buffer = self.recv_buffer[size:]
         return result
 
     async def close(self):
