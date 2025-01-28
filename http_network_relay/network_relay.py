@@ -270,7 +270,7 @@ class NetworkRelay:
         while True:
             try:
                 json_data = await edge_agent_connection.receive_text()
-                eprint(f"Received message from agent: {json_data}")
+                eprint(f"Received message from agent: {json_data}", only_debug=True)
             except WebSocketDisconnect:
                 eprint(f"Agent disconnected: {connection_id}")
                 del self.registered_agent_connections[connection_id]
@@ -297,7 +297,7 @@ class NetworkRelay:
             elif message_outer is not None:
                 # this is a request-response message
                 # get queue
-                eprint(f"Got request-response message: {message}")
+                eprint(f"Got request-response message: {message}", only_debug=True)
                 response_queue = self.initiate_connection_answer_queues.get(
                     message.connection_id
                 )
@@ -392,9 +392,14 @@ class NetworkRelay:
         await agent_connection.send_text(
             RelayToEdgeAgentMessage(inner=message).model_dump_json()
         )
-        eprint(f"Waiting for response for connection_id: {message.connection_id}")
+        eprint(
+            f"Waiting for response for connection_id: {message.connection_id}",
+            only_debug=True,
+        )
         response = await response_queue.get()
-        eprint(f"Got response for connection_id: {message.connection_id}")
+        eprint(
+            f"Got response for connection_id: {message.connection_id}", only_debug=True
+        )
         del self.initiate_connection_answer_queues[message.connection_id]
         return response
 
