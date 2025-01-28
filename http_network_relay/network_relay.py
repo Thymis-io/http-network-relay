@@ -194,7 +194,7 @@ class NetworkRelay:
             await edge_agent_connection.close()
             return
 
-        connection_id = self.get_agent_connection_id_from_start_message(
+        connection_id = await self.get_agent_connection_id_from_start_message(
             start_message, edge_agent_connection
         )
 
