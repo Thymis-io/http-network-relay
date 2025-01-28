@@ -162,19 +162,17 @@ class TcpConnectionAsync(AbstractAsyncContextManager):
 class NetworkRelay:
     CustomAgentToRelayMessage: Type[BaseModel] = None
 
-    def __init__(self, credentials):
+    def __init__(self):
         self.agent_connections = []
         self.registered_agent_connections: dict[
             str, WebSocket
-        ] = {}  # name -> agent_connection
+        ] = {}  # agent_connection_id -> websocket
 
         self.initiate_connection_answer_queues: dict[
             str, asyncio.Queue
         ] = {}  # connection_id -> queue
 
         self.active_relayed_connections: dict[uuid.UUID, TcpConnection] = {}
-
-        self.credentials = credentials
 
     async def ws_for_edge_agents(self, edge_agent_connection: WebSocket):
         await edge_agent_connection.accept()
@@ -187,41 +185,40 @@ class NetworkRelay:
         if not isinstance(start_message, EtRStartMessage):
             eprint(f"Unknown message received from agent: {start_message}")
             return
-        #  check if we know the agent
-        if start_message.name not in self.credentials["edge-agents"]:
-            eprint(f"Unknown agent: {start_message.name}")
+
+        if not await self.check_agent_start_message_auth(
+            start_message, edge_agent_connection
+        ):
+            eprint(f"Authentication failed for agent: {start_message}")
             # close the connection
             await edge_agent_connection.close()
             return
 
-        # check if the secret is correct
-        if self.credentials["edge-agents"][start_message.name] != start_message.secret:
-            eprint(f"Invalid secret for agent: {start_message.name}")
-            # close the connection
-            await edge_agent_connection.close()
-            return
+        connection_id = self.get_agent_connection_id_from_start_message(
+            start_message, edge_agent_connection
+        )
 
         # check if the agent is already registered
-        if start_message.name in self.registered_agent_connections:
+        if connection_id in self.registered_agent_connections:
             # check wether the other websocket is still open, if not remove it
-            if self.registered_agent_connections[start_message.name].closed:
-                del self.registered_agent_connections[start_message.name]
+            if self.registered_agent_connections[connection_id].closed:
+                del self.registered_agent_connections[connection_id]
             else:
-                eprint(f"Agent already registered: {start_message.name}")
+                eprint(f"Agent already registered: {connection_id}")
                 # close the connection
                 await edge_agent_connection.close()
                 return
 
-        self.registered_agent_connections[start_message.name] = edge_agent_connection
-        eprint(f"Registered agent connection: {start_message.name}")
+        self.registered_agent_connections[connection_id] = edge_agent_connection
+        eprint(f"Registered agent connection: {connection_id}")
 
         while True:
             try:
                 json_data = await edge_agent_connection.receive_text()
                 eprint(f"Received message from agent: {json_data}")
             except WebSocketDisconnect:
-                eprint(f"Agent disconnected: {start_message.name}")
-                del self.registered_agent_connections[start_message.name]
+                eprint(f"Agent disconnected: {connection_id}")
+                del self.registered_agent_connections[connection_id]
                 break
             message_outer = None
             try:
@@ -363,4 +360,14 @@ class NetworkRelay:
         del self.active_relayed_connections[connection_id]
 
     async def handle_custom_agent_message(self, message: BaseModel):
+        raise NotImplementedError()
+
+    async def check_agent_start_message_auth(
+        self, start_message: EtRStartMessage, edge_agent_connection: WebSocket
+    ):
+        raise NotImplementedError()
+
+    async def get_agent_connection_id_from_start_message(
+        self, start_message: EtRStartMessage, edge_agent_connection: WebSocket
+    ):
         raise NotImplementedError()
