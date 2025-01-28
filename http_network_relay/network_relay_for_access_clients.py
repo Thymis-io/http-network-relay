@@ -157,7 +157,7 @@ class NetworkRelayForAccessClients(NetworkRelay):
         if relayed_connection.id in self.active_connections:
             del self.active_connections[relayed_connection.id]
 
-    async def check_agent_start_message_auth(
+    async def check_start_message_can_proceed_to_tcp_relaying(
         self, start_message: EdgeAgentToRelayStartMessage, edge_agent_connection
     ):
         #  check if we know the agent
