@@ -112,7 +112,7 @@ class NetworkRelay:
             else:
                 eprint(f"Unknown message received from agent: {message}")
 
-    async def handle_custom_agent_message(self, message_wrapped: BaseModel):
+    async def handle_custom_agent_message(self, message: BaseModel):
         raise NotImplementedError()
 
     async def handle_initiate_connection_error_message(

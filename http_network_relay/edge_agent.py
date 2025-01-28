@@ -186,7 +186,7 @@ class EdgeAgent:
 
         asyncio.create_task(read_from_tcp_and_send())
 
-    async def handle_custom_relay_message(self, message_wrapped: BaseModel):
+    async def handle_custom_relay_message(self, message: BaseModel):
         raise NotImplementedError()
 
 
