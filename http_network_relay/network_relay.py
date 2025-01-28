@@ -161,6 +161,7 @@ class TcpConnectionAsync(AbstractAsyncContextManager):
 
 class NetworkRelay:
     CustomAgentToRelayMessage: Type[BaseModel] = None
+    CustomAgentToRelayStartMessage: Type[BaseModel] = None
 
     def __init__(self):
         self.agent_connections = []
@@ -185,6 +186,11 @@ class NetworkRelay:
         if not isinstance(start_message, EtRStartMessage):
             eprint(f"Unknown message received from agent: {start_message}")
             return
+
+        if self.CustomAgentToRelayStartMessage is not None:
+            start_message = self.CustomAgentToRelayStartMessage.model_validate(
+                start_message, from_attributes=True
+            )
 
         if not await self.check_agent_start_message_auth(
             start_message, edge_agent_connection
@@ -363,11 +369,11 @@ class NetworkRelay:
         raise NotImplementedError()
 
     async def check_agent_start_message_auth(
-        self, start_message: EtRStartMessage, edge_agent_connection: WebSocket
+        self, start_message: BaseModel, edge_agent_connection: WebSocket
     ):
         raise NotImplementedError()
 
     async def get_agent_connection_id_from_start_message(
-        self, start_message: EtRStartMessage, edge_agent_connection: WebSocket
+        self, start_message: BaseModel, edge_agent_connection: WebSocket
     ):
         raise NotImplementedError()
