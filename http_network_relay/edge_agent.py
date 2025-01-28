@@ -64,7 +64,8 @@ class EdgeAgent:
         async with connect(self.relay_url) as websocket:
             start_message = EdgeAgentToRelayMessage(
                 inner=EtRStartMessage.model_validate(
-                    await self.create_start_message(), from_attributes=True
+                    (await self.create_start_message()).model_dump(),
+                    from_attributes=True,
                 )
             )
             await websocket.send(start_message.model_dump_json())
