@@ -37,26 +37,42 @@ def eprint(*args, only_debug=False, **kwargs):
 class TcpConnection(AbstractContextManager):
     # compare https://docs.paramiko.org/en/2.4/api/proxy.html#paramiko.proxy.ProxyCommand
     def __init__(
-        self, connection_id: str, relay: "NetworkRelay", agent_connection: WebSocket
+        self,
+        connection_id: str,
+        relay: "NetworkRelay",
+        agent_connection: WebSocket,
+        loop,
     ):
         self.id = connection_id
         self.relay = relay
         self.recv_buffer = bytearray()
         self.agent_connection = agent_connection
         self.timeout = None
-        self.event = threading.Event()
+        self.recv_event = threading.Event()
+        self.send_buffer = bytearray()
+        self.send_buffer_lock = threading.Lock()
+        self.loop = loop
 
-    async def send(self, content):
-        return self.relay.send_connection_message(
-            self.agent_connection,
-            RtETCPDataMessage(
-                connection_id=self.id, data_base64=base64.b64encode(content).decode()
-            ),
-        )
+    def send(self, content):
+        with self.send_buffer_lock:
+            self.send_buffer.extend(content)
+        self.loop.call_soon_threadsafe(self.send_async)
+
+    async def send_async(self):
+        with self.send_buffer_lock:
+            content = self.send_buffer
+            self.send_buffer = bytearray()
+            await self.relay.send_connection_message(
+                self.agent_connection,
+                RtETCPDataMessage(
+                    connection_id=self.id,
+                    data_base64=base64.b64encode(content).decode(),
+                ),
+            )
 
     def fill_recv(self, data: bytes):
         self.recv_buffer.extend(data)
-        self.event.set()
+        self.recv_event.set()
 
     def recv(self, size):
         # return self.todo.recv(size)
@@ -65,8 +81,8 @@ class TcpConnection(AbstractContextManager):
             if self.closed:
                 return b""
             # wait for data
-            self.event.clear()
-            res = self.event.wait(self.timeout)
+            self.recv_event.clear()
+            res = self.recv_event.wait(self.timeout)
             if not res:
                 raise TimeoutError()
         if size == 0:
@@ -101,7 +117,11 @@ class TcpConnection(AbstractContextManager):
 
 class TcpConnectionAsync(AbstractAsyncContextManager):
     def __init__(
-        self, connection_id: str, relay: "NetworkRelay", agent_connection: WebSocket
+        self,
+        connection_id: str,
+        relay: "NetworkRelay",
+        agent_connection: WebSocket,
+        loop,
     ):
         self.id = connection_id
         self.relay = relay
@@ -109,6 +129,7 @@ class TcpConnectionAsync(AbstractAsyncContextManager):
         self.agent_connection = agent_connection
         self.timeout = None
         self.event = asyncio.Event()
+        self.loop = loop
 
     async def send(self, content):
         return await self.relay.send_connection_message(
@@ -300,7 +321,9 @@ class NetworkRelay:
             raise ValueError(f"Unknown agent: {agent_connection_id}")
         # step 0. create TcpConnection object so that messages sent immediately after tcp creation can be received by the main loop
         connection_id = str(uuid.uuid4())
-        connection = connection_class(connection_id, self, agent_connection)
+        connection = connection_class(
+            connection_id, self, agent_connection, asyncio.get_event_loop()
+        )
         self.active_relayed_connections[connection_id] = connection
         # step 1. send initiate connection message to agent
         response = await self.send_message_and_wait_for_answer(
