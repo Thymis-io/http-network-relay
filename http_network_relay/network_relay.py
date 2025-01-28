@@ -76,7 +76,7 @@ class TcpConnection(AbstractContextManager):
         return result
 
     async def close(self):
-        return await self.relay.close_connection(self.id, self.agent_connection)
+        return await self.relay.close_relayed_connection(self.id, self.agent_connection)
 
     @property
     def closed(self):
@@ -142,7 +142,7 @@ class TcpConnectionAsync(AbstractAsyncContextManager):
         return result
 
     async def close(self):
-        return await self.relay.close_connection(self.id, self.agent_connection)
+        return await self.relay.close_relayed_connection(self.id, self.agent_connection)
 
     @property
     def closed(self):
@@ -364,7 +364,9 @@ class NetworkRelay:
             RelayToEdgeAgentMessage(inner=message).model_dump_json()
         )
 
-    async def close_connection(self, connection_id: str, agent_connection: WebSocket):
+    async def close_relayed_connection(
+        self, connection_id: str, agent_connection: WebSocket
+    ):
         # inform agent
         await agent_connection.send_text(
             RelayToEdgeAgentMessage(
