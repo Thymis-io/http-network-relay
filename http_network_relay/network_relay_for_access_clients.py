@@ -157,24 +157,19 @@ class NetworkRelayForAccessClients(NetworkRelay):
         if relayed_connection.id in self.active_connections:
             del self.active_connections[relayed_connection.id]
 
-    async def check_start_message_can_proceed_to_tcp_relaying(
+    async def get_msg_loop_permission_and_create_connection_id(
         self, start_message: EdgeAgentToRelayStartMessage, edge_agent_connection
     ):
         #  check if we know the agent
         if start_message.name not in self.credentials["edge-agents"]:
             eprint(f"Unknown agent: {start_message.name}")
-            return False
+            return None
 
         # check if the secret is correct
         if self.credentials["edge-agents"][start_message.name] != start_message.secret:
             eprint(f"Invalid secret for agent: {start_message.name}")
-            return False
+            return None
 
-        return True
-
-    async def get_agent_connection_id_from_start_message(
-        self, start_message: EdgeAgentToRelayStartMessage, edge_agent_connection
-    ):
         return start_message.name
 
 

@@ -194,17 +194,17 @@ class NetworkRelay:
                 start_message, from_attributes=True
             )
 
-        if not await self.check_start_message_can_proceed_to_tcp_relaying(
-            start_message, edge_agent_connection
-        ):
+        connection_id_or_falsy = (
+            await self.get_msg_loop_permission_and_create_connection_id(
+                start_message, edge_agent_connection
+            )
+        )
+        if not connection_id_or_falsy:
             eprint(f"Agent {start_message} cannot proceed to tcp relaying")
             # close the connection
             await edge_agent_connection.close()
             return
-
-        connection_id = await self.get_agent_connection_id_from_start_message(
-            start_message, edge_agent_connection
-        )
+        connection_id = connection_id_or_falsy
 
         # check if the agent is already registered
         if connection_id in self.registered_agent_connections:
@@ -377,12 +377,7 @@ class NetworkRelay:
     async def handle_custom_agent_message(self, message: BaseModel):
         raise NotImplementedError()
 
-    async def check_start_message_can_proceed_to_tcp_relaying(
+    async def get_msg_loop_permission_and_create_connection_id(
         self, start_message: BaseModel, edge_agent_connection: WebSocket
-    ):
-        raise NotImplementedError()
-
-    async def get_agent_connection_id_from_start_message(
-        self, start_message: BaseModel, edge_agent_connection: WebSocket
-    ):
+    ) -> str | None:
         raise NotImplementedError()
