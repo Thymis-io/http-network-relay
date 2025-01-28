@@ -225,7 +225,13 @@ class NetworkRelay:
         msg_loop_task = asyncio.create_task(
             self._msg_loop(edge_agent_connection, connection_id)
         )
-        return msg_loop_task
+        return msg_loop_task, connection_id
+
+    async def ws_for_edge_agents(self, websocket: WebSocket):
+        msg_loop_task = (
+            await self.accept_ws_and_start_msg_loop_for_edge_agents(websocket)
+        )[0]
+        return await msg_loop_task
 
     async def _msg_loop(self, edge_agent_connection: WebSocket, connection_id: str):
         while True:
