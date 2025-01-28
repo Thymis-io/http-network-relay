@@ -173,7 +173,9 @@ class NetworkRelay:
             str, asyncio.Queue
         ] = {}  # connection_id -> queue
 
-        self.active_relayed_connections: dict[uuid.UUID, TcpConnection] = {}
+        self.active_relayed_connections: dict[
+            str, TcpConnection | TcpConnectionAsync
+        ] = {}  # connection_id -> TcpConnection
 
     async def accept_ws_and_start_msg_loop_for_edge_agents(
         self, edge_agent_connection: WebSocket
