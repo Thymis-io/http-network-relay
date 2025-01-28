@@ -57,6 +57,7 @@ class TcpConnection(AbstractContextManager):
         with self.send_buffer_lock:
             self.send_buffer.extend(content)
         self.loop.call_soon_threadsafe(self.send_async)
+        return len(content)
 
     async def send_async(self):
         with self.send_buffer_lock:
