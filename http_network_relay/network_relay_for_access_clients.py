@@ -73,7 +73,7 @@ class NetworkRelayForAccessClients(NetworkRelay):
             return
         try:
             connection = await self.create_connection_async(
-                agent_name=start_message.connection_target,
+                agent_connection_id=start_message.connection_target,
                 target_ip=start_message.target_ip,
                 target_port=start_message.target_port,
                 protocol=start_message.protocol,

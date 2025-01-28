@@ -263,15 +263,15 @@ class NetworkRelay:
 
     async def _create_connection(
         self,
-        agent_name: str,
+        agent_connection_id: str,
         target_ip: str,
         target_port: int,
         protocol: str,
         connection_class,
     ) -> TcpConnection:
-        agent_connection = self.registered_agent_connections.get(agent_name)
+        agent_connection = self.registered_agent_connections.get(agent_connection_id)
         if agent_connection is None:
-            raise ValueError(f"Unknown agent: {agent_name}")
+            raise ValueError(f"Unknown agent: {agent_connection_id}")
         # step 0. create TcpConnection object so that messages sent immediately after tcp creation can be received by the main loop
         connection_id = str(uuid.uuid4())
         connection = connection_class(connection_id, self, agent_connection)
@@ -300,17 +300,17 @@ class NetworkRelay:
         return connection
 
     async def create_connection(
-        self, agent_name: str, target_ip: str, target_port: int, protocol: str
+        self, agent_connection_id: str, target_ip: str, target_port: int, protocol: str
     ) -> TcpConnection:
         return await self._create_connection(
-            agent_name, target_ip, target_port, protocol, TcpConnection
+            agent_connection_id, target_ip, target_port, protocol, TcpConnection
         )
 
     async def create_connection_async(
-        self, agent_name: str, target_ip: str, target_port: int, protocol: str
+        self, agent_connection_id: str, target_ip: str, target_port: int, protocol: str
     ) -> TcpConnectionAsync:
         return await self._create_connection(
-            agent_name, target_ip, target_port, protocol, TcpConnectionAsync
+            agent_connection_id, target_ip, target_port, protocol, TcpConnectionAsync
         )
 
     async def handle_tcp_data_message(self, message: EtRTCPDataMessage):
