@@ -56,7 +56,7 @@ class TcpConnection(AbstractContextManager):
     def send(self, content):
         with self.send_buffer_lock:
             self.send_buffer.extend(content)
-        self.loop.call_soon_threadsafe(self.send_async)
+        asyncio.run_coroutine_threadsafe(self.send_async(), self.loop)
         return len(content)
 
     async def send_async(self):
