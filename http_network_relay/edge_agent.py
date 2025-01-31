@@ -143,7 +143,12 @@ class EdgeAgent:
                 elif self.CustomRelayToAgentMessage is not None and isinstance(
                     message, self.CustomRelayToAgentMessage
                 ):
-                    await self.handle_custom_relay_message(message)
+                    try:
+                        await self.handle_custom_relay_message(message)
+                    except NotImplementedError:
+                        eprint(f"Custom relay message not implemented")
+                    except Exception as e:
+                        eprint(f"Error while handling custom relay message: {e}")
                 else:
                     eprint(f"Unknown message received: {message}")
 
