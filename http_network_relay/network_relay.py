@@ -319,7 +319,15 @@ class NetworkRelay:
                 message,
                 self.CustomAgentToRelayMessage,
             ):
-                await self.handle_custom_agent_message(message)
+                try:
+                    await self.handle_custom_agent_message(message)
+                except NotImplementedError:
+                    logger.warning(
+                        "Custom agent message handling not implemented: %s", message
+                    )
+                except Exception as e:
+                    logger.error("Error handling custom agent message: %s", e)
+            else:
                 logger.warning("Unknown message received from agent: %s", message)
 
     async def _create_connection(
