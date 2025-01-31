@@ -210,10 +210,12 @@ class NetworkRelay:
         self.active_access_client_connections = (
             {}
         )  # connection_id -> WebSocket for access clients
+        self.loop = None
 
     async def accept_ws_and_start_msg_loop_for_edge_agents(
         self, edge_agent_connection: WebSocket
     ):
+        self.loop = asyncio.get_event_loop()
         await edge_agent_connection.accept()
         self.agent_connections.append(edge_agent_connection)
         start_message_json_data = await edge_agent_connection.receive_text()
