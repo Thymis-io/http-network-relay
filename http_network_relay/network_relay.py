@@ -453,8 +453,15 @@ class NetworkRelay:
             await access_client_connection.close()
             return
         # check if the client is registered
-        if not start_message.connection_target in self.registered_agent_connections:
-            logger.warning("Agent not registered: %s", start_message.connection_target)
+        agent_connection_id = await self.get_agent_connection_id_for_access_client(
+            start_message.connection_target
+        )
+        if not agent_connection_id in self.registered_agent_connections:
+            logger.warning(
+                "Agent not registered: %s (%s)",
+                agent_connection_id,
+                start_message.connection_target,
+            )
             # send a message back and kill the connection
             await access_client_connection.send_text(
                 RelayToAccessClientMessage(
@@ -465,7 +472,7 @@ class NetworkRelay:
             return
         try:
             connection = await self.create_connection_async(
-                agent_connection_id=start_message.connection_target,
+                agent_connection_id=agent_connection_id,
                 target_ip=start_message.target_ip,
                 target_port=start_message.target_port,
                 protocol=start_message.protocol,
@@ -546,3 +553,6 @@ class NetworkRelay:
         self, start_message: AtRStartMessage, access_client_connection
     ):
         raise NotImplementedError()
+
+    async def get_agent_connection_id_for_access_client(self, connection_target: str):
+        return connection_target
