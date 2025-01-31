@@ -37,6 +37,7 @@ class EdgeAgent:
     def __init__(self, relay_url):
         self.relay_url = relay_url
         self.active_connections = {}  # connection_id -> (tcp_reader, tcp_writer)
+        self.websocket = None
 
     async def async_main(self):
         connection_delay = 1
@@ -50,6 +51,7 @@ class EdgeAgent:
                 eprint(f"Connection refused: {e}")
             except Exception as e:
                 eprint(f"Error: {e}")
+            self.websocket = None
             if time.time() - last_connection_attempt_time >= 60:
                 # if it's been more than 60 seconds since the last connection attempt
                 # then the connection has been stable
@@ -70,6 +72,7 @@ class EdgeAgent:
             )
             await websocket.send(start_message.model_dump_json())
             eprint(f"Sent start message: {start_message}")
+            self.websocket = websocket
 
             while True:
                 try:
