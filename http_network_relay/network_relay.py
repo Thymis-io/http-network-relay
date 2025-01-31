@@ -5,7 +5,7 @@ import logging
 import threading
 import uuid
 from contextlib import AbstractAsyncContextManager, AbstractContextManager
-from typing import Type
+from typing import Optional, Type
 
 from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, ValidationError
@@ -210,7 +210,7 @@ class NetworkRelay:
         self.active_access_client_connections = (
             {}
         )  # connection_id -> WebSocket for access clients
-        self.loop = None
+        self.loop: Optional[asyncio.AbstractEventLoop] = None
 
     async def accept_ws_and_start_msg_loop_for_edge_agents(
         self, edge_agent_connection: WebSocket
