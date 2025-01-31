@@ -10,6 +10,15 @@ from typing import Type
 from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, ValidationError
 
+from .access_client import (
+    AccessClientToRelayMessage,
+    AtRStartMessage,
+    AtRTCPDataMessage,
+    RelayToAccessClientMessage,
+    RtAErrorMessage,
+    RtAStartOKMessage,
+    RtATCPDataMessage,
+)
 from .pydantic_models import (
     EdgeAgentToRelayMessage,
     EtRConnectionResetMessage,
@@ -189,7 +198,7 @@ class NetworkRelay:
         self.agent_connections = []
         self.registered_agent_connections: dict[
             str, WebSocket
-        ] = {}  # agent_connection_id -> websocket
+        ] = {}  # agent_connection_id -> WebSocket for edge agents
 
         self.initiate_connection_answer_queues: dict[
             str, asyncio.Queue
@@ -198,6 +207,9 @@ class NetworkRelay:
         self.active_relayed_connections: dict[
             str, TcpConnection | TcpConnectionAsync
         ] = {}  # connection_id -> TcpConnection
+        self.active_access_client_connections = (
+            {}
+        )  # connection_id -> WebSocket for access clients
 
     async def accept_ws_and_start_msg_loop_for_edge_agents(
         self, edge_agent_connection: WebSocket
@@ -219,7 +231,7 @@ class NetworkRelay:
             )
 
         connection_id_or_falsy = (
-            await self.get_msg_loop_permission_and_create_connection_id(
+            await self.get_agent_msg_loop_permission_and_create_connection_id(
                 start_message, edge_agent_connection
             )
         )
@@ -416,7 +428,121 @@ class NetworkRelay:
     async def handle_custom_agent_message(self, message: BaseModel):
         raise NotImplementedError()
 
-    async def get_msg_loop_permission_and_create_connection_id(
+    async def get_agent_msg_loop_permission_and_create_connection_id(
         self, start_message: BaseModel, edge_agent_connection: WebSocket
     ) -> str | None:
+        raise NotImplementedError()
+
+    # access client stuff from here
+
+    async def ws_for_access_clients(self, access_client_connection: WebSocket):
+        await access_client_connection.accept()
+        json_data = await access_client_connection.receive_text()
+        message = AccessClientToRelayMessage.model_validate_json(json_data)
+        logger.info("Message received from access client: %s", message)
+        if not isinstance(message.inner, AtRStartMessage):
+            logger.warning("Unknown message received from access client: %s", message)
+            return
+        start_message = message.inner
+        # check if credentials are correct
+        if not await self.get_access_client_permission(
+            start_message, access_client_connection
+        ):
+            logger.warning("Access client not allowed: %s", start_message)
+
+            await access_client_connection.close()
+            return
+        # check if the client is registered
+        if not start_message.connection_target in self.registered_agent_connections:
+            logger.warning("Agent not registered: %s", start_message.connection_target)
+            # send a message back and kill the connection
+            await access_client_connection.send_text(
+                RelayToAccessClientMessage(
+                    inner=RtAErrorMessage(message="Agent not registered")
+                ).model_dump_json()
+            )
+            await access_client_connection.close()
+            return
+        try:
+            connection = await self.create_connection_async(
+                agent_connection_id=start_message.connection_target,
+                target_ip=start_message.target_ip,
+                target_port=start_message.target_port,
+                protocol=start_message.protocol,
+            )
+            await access_client_connection.send_text(
+                RelayToAccessClientMessage(
+                    inner=RtAStartOKMessage(connection_id=connection.id)
+                ).model_dump_json()
+            )
+        except ValueError as e:
+            logger.info("Error creating connection: %s", e)
+            await access_client_connection.send_text(
+                RelayToAccessClientMessage(
+                    inner=RtAErrorMessage(message=str(e))
+                ).model_dump_json()
+            )
+            await access_client_connection.close()
+            return
+
+        logger.info("Connection created: %s", connection)
+        self.active_access_client_connections[connection.id] = connection
+        reader = asyncio.create_task(
+            self.access_client_receive_thread(access_client_connection, connection)
+        )
+        while connection.id in self.active_access_client_connections:
+            try:
+                json_data = await access_client_connection.receive_text()
+            except WebSocketDisconnect:
+                logger.info("access client disconnected: %s", connection.id)
+                if connection.id in self.active_access_client_connections:
+                    del self.active_access_client_connections[connection.id]
+                break
+            message = AccessClientToRelayMessage.model_validate_json(json_data)
+            if isinstance(message.inner, AtRTCPDataMessage):
+                logger.debug(
+                    "Received TCP data message from access client: %s", message
+                )
+                await connection.send(base64.b64decode(message.inner.data_base64))
+            else:
+                logger.warning(
+                    "Unknown message received from access client: %s", message
+                )
+        if connection.id in self.active_access_client_connections:
+            del self.active_access_client_connections[connection.id]
+        await reader
+        access_client_connection.close()
+
+    async def access_client_receive_thread(
+        self,
+        access_client_connection: WebSocket,
+        relayed_connection: TcpConnectionAsync,
+    ):
+        while relayed_connection.id in self.active_access_client_connections:
+            try:
+                data = await relayed_connection.read(1024)
+                if not data:
+                    break
+                await access_client_connection.send_text(
+                    RelayToAccessClientMessage(
+                        inner=RtATCPDataMessage(
+                            connection_id=relayed_connection.id,
+                            data_base64=base64.b64encode(data).decode("utf-8"),
+                        )
+                    ).model_dump_json()
+                )
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Error in receive_thread: {e}")
+                import traceback
+
+                traceback.print_exc()
+                break
+        if relayed_connection.id in self.active_access_client_connections:
+            del self.active_access_client_connections[relayed_connection.id]
+
+    async def get_access_client_permission(
+        self, start_message: AtRStartMessage, access_client_connection
+    ):
         raise NotImplementedError()

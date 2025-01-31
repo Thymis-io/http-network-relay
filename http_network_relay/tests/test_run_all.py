@@ -65,7 +65,7 @@ def test_can_run_and_proxy_tcp():
                 [
                     "python",
                     "-m",
-                    "http_network_relay.network_relay_for_access_clients",
+                    "http_network_relay.network_relay_example",
                     "--port",
                     str(port_relay),
                     "--credentials-file",
@@ -81,7 +81,7 @@ def test_can_run_and_proxy_tcp():
             [
                 "python",
                 "-m",
-                "http_network_relay.edge_agent_for_access_clients",
+                "http_network_relay.edge_agent_example",
                 "--secret",
                 agent_secret,
                 "--relay-url",
@@ -108,7 +108,7 @@ def test_can_run_and_proxy_tcp():
         [
             "python",
             "-m",
-            "http_network_relay.access_client",
+            "http_network_relay.access_client_example",
             "--secret",
             relay_secret,
             agent_name,
