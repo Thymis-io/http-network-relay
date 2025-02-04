@@ -49,7 +49,7 @@ class TcpConnection(AbstractContextManager):
         self.recv_buffer = bytearray()
         self.agent_connection = agent_connection
         self.timeout = None
-        self.recv_event = threading.Event()
+        self.recv_event = asyncio.Event()
         self.recv_buffer_lock = threading.Lock()
         self.send_buffer = bytearray()
         self.send_buffer_lock = threading.Lock()
@@ -79,6 +79,11 @@ class TcpConnection(AbstractContextManager):
             self.recv_event.set()
 
     def recv(self, size):
+        return asyncio.run_coroutine_threadsafe(
+            self.recv_async(size), self.loop
+        ).result()
+
+    async def recv_async(self, size):
         # return self.todo.recv(size)
         # send AT MOST size bytes, at least 1 byte if blocking
         with self.recv_buffer_lock:
@@ -88,7 +93,7 @@ class TcpConnection(AbstractContextManager):
                 # wait for data
                 self.recv_event.clear()
 
-        res = self.recv_event.wait(self.timeout)
+        res = await asyncio.wait_for(self.recv_event.wait(), timeout=self.timeout)
         if not res:
             raise TimeoutError()
         if size == 0:
