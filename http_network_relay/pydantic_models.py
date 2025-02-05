@@ -44,7 +44,7 @@ class EtRConnectionResetMessage(BaseModel):
 
 
 RelayToEdgeAgentMessage_Inner = Union[
-    "RtEInitiateConnectionMessage", "RtETCPDataMessage"
+    "RtEInitiateConnectionMessage", "RtETCPDataMessage", "RtEConnectionCloseMessage"
 ]
 
 
@@ -64,3 +64,9 @@ class RtETCPDataMessage(BaseModel):
     kind: Literal["tcp_data"] = "tcp_data"
     connection_id: str
     data_base64: str
+
+
+class RtEConnectionCloseMessage(BaseModel):
+    kind: Literal["connection_close"] = "connection_close"
+    message: str
+    connection_id: str

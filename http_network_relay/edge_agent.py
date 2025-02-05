@@ -17,6 +17,7 @@ from .pydantic_models import (
     EtRStartMessage,
     EtRTCPDataMessage,
     RelayToEdgeAgentMessage,
+    RtEConnectionCloseMessage,
     RtEInitiateConnectionMessage,
     RtETCPDataMessage,
 )
@@ -36,7 +37,9 @@ class EdgeAgent:
 
     def __init__(self, relay_url):
         self.relay_url = relay_url
-        self.active_connections = {}  # connection_id -> (tcp_reader, tcp_writer)
+        self.active_connections: dict[
+            str, tuple[asyncio.StreamReader, asyncio.StreamWriter]
+        ] = {}
         self.websocket = None
 
     async def async_main(self):
@@ -140,6 +143,25 @@ class EdgeAgent:
                                 )
                             ).model_dump_json()
                         )
+                elif isinstance(message, RtEConnectionCloseMessage):
+                    connection_close_message = message
+                    eprint(
+                        f"Received connection close message: {connection_close_message}",
+                        only_debug=True,
+                    )
+                    if (
+                        connection_close_message.connection_id
+                        not in self.active_connections
+                    ):
+                        eprint(
+                            f"Unknown connection_id: {connection_close_message.connection_id}"
+                        )
+                        continue
+                    reader, writer = self.active_connections[
+                        connection_close_message.connection_id
+                    ]
+                    writer.close()
+                    del self.active_connections[connection_close_message.connection_id]
                 elif self.CustomRelayToAgentMessage is not None and isinstance(
                     message, self.CustomRelayToAgentMessage
                 ):
