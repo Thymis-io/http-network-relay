@@ -53,10 +53,10 @@ class EdgeAgent:
                 await self.connect_to_server(last_error)
             except ConnectionRefusedError as e:
                 eprint(f"Connection refused: {e}")
-                last_error = e
+                last_error = str(e)
             except Exception as e:
                 eprint(f"Error: {e}")
-                last_error = e
+                last_error = str(e)
             self.websocket = None
             if time.time() - last_connection_attempt_time >= 60:
                 # if it's been more than 60 seconds since the last connection attempt
