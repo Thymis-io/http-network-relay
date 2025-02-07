@@ -387,14 +387,18 @@ class NetworkRelay:
 
     async def handle_tcp_data_message(self, message: EtRTCPDataMessage):
         if message.connection_id not in self.active_relayed_connections:
-            logger.warning("Unknown connection_id: %s", message.connection_id)
+            logger.warning(
+                "Unknown connection_id for TCP data: %s", message.connection_id
+            )
             return
         connection = self.active_relayed_connections[message.connection_id]
         connection.fill_recv(base64.b64decode(message.data_base64))
 
     async def handle_connection_reset_message(self, message: EtRConnectionResetMessage):
         if message.connection_id not in self.active_relayed_connections:
-            logger.warning(f"Unknown connection_id: {message.connection_id}")
+            logger.warning(
+                f"Unknown connection_id for connection reset: %s", message.connection_id
+            )
             return
         del self.active_relayed_connections[message.connection_id]
 
