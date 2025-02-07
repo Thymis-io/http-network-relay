@@ -1,4 +1,4 @@
-from typing import Literal, Union
+from typing import Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -18,6 +18,7 @@ class EtRStartMessage(BaseModel):
         extra="allow",
     )
     kind: Literal["start"] = "start"
+    last_error: Optional[str] = None
 
 
 class EtRInitiateConnectionErrorMessage(BaseModel):

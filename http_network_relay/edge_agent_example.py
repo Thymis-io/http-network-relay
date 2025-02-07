@@ -4,6 +4,7 @@ import os
 import random
 import socket
 import sys
+from typing import Optional
 
 from .edge_agent import EdgeAgent
 from .pydantic_models import EtRStartMessage
@@ -24,10 +25,13 @@ class EdgeAgentForAccessClients(EdgeAgent):
         self.name = name
         self.secret = secret
 
-    async def create_start_message(self):
+    async def create_start_message(
+        self, last_error: Optional[str] = None
+    ) -> EtRStartMessage:
         return EtRStartMessage(
             name=self.name,
             secret=self.secret,
+            last_error=last_error,
         )
 
 

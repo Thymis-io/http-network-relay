@@ -3,7 +3,7 @@ import base64
 import os
 import sys
 import time
-from typing import Type
+from typing import Optional, Type
 
 import websockets
 from pydantic import BaseModel, ValidationError
@@ -45,15 +45,18 @@ class EdgeAgent:
     async def async_main(self):
         connection_delay = 1
         last_connection_attempt_time = 0
+        last_error = None
         while True:
             eprint("Connecting to server...")
             # exponential backoff
             try:
-                await self.connect_to_server()
+                await self.connect_to_server(last_error)
             except ConnectionRefusedError as e:
                 eprint(f"Connection refused: {e}")
+                last_error = e
             except Exception as e:
                 eprint(f"Error: {e}")
+                last_error = e
             self.websocket = None
             if time.time() - last_connection_attempt_time >= 60:
                 # if it's been more than 60 seconds since the last connection attempt
@@ -65,11 +68,11 @@ class EdgeAgent:
             connection_delay = min(2 * connection_delay, 60)
             last_connection_attempt_time = time.time()
 
-    async def connect_to_server(self):
+    async def connect_to_server(self, last_error):
         async with connect(self.relay_url) as websocket:
             start_message = EdgeAgentToRelayMessage(
                 inner=EtRStartMessage.model_validate(
-                    (await self.create_start_message()).model_dump(),
+                    (await self.create_start_message(last_error)).model_dump(),
                     from_attributes=True,
                 )
             )
@@ -214,7 +217,9 @@ class EdgeAgent:
 
         asyncio.create_task(read_from_tcp_and_send())
 
-    async def create_start_message(self):
+    async def create_start_message(
+        self, last_error: Optional[str] = None
+    ) -> EtRStartMessage:
         raise NotImplementedError()
 
     async def handle_custom_relay_message(self, message: BaseModel):
