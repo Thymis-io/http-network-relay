@@ -321,7 +321,7 @@ class NetworkRelay:
                 self.CustomAgentToRelayMessage,
             ):
                 try:
-                    await self.handle_custom_agent_message(message)
+                    await self.handle_custom_agent_message(message, connection_id)
                 except NotImplementedError:
                     logger.warning(
                         "Custom agent message handling not implemented: %s", message
@@ -440,7 +440,7 @@ class NetworkRelay:
         # remove connection
         del self.active_relayed_connections[connection_id]
 
-    async def handle_custom_agent_message(self, message: BaseModel):
+    async def handle_custom_agent_message(self, message: BaseModel, connection_id: str):
         raise NotImplementedError()
 
     async def get_agent_msg_loop_permission_and_create_connection_id(
