@@ -32,6 +32,7 @@ from .pydantic_models import (
     RelayToEdgeAgentMessage_Inner,
     RtEConnectionCloseMessage,
     RtEInitiateConnectionMessage,
+    RtEKeepAliveMessage,
     RtETCPDataMessage,
 )
 
@@ -283,7 +284,7 @@ class NetworkRelay:
                     break
                 await edge_agent_connection.send_text(
                     RelayToEdgeAgentMessage(
-                        inner=EtRKeepAliveMessage()
+                        inner=RtEKeepAliveMessage()
                     ).model_dump_json()
                 )
 
