@@ -19,6 +19,7 @@ from .pydantic_models import (
     RelayToEdgeAgentMessage,
     RtEConnectionCloseMessage,
     RtEInitiateConnectionMessage,
+    RtEKeepAliveMessage,
     RtETCPDataMessage,
 )
 
@@ -41,6 +42,7 @@ class EdgeAgent:
             str, tuple[asyncio.StreamReader, asyncio.StreamWriter]
         ] = {}
         self.websocket = None
+        self.signal_connected = asyncio.Event()
 
     async def async_main(self):
         connection_delay = 1
@@ -57,6 +59,7 @@ class EdgeAgent:
             except Exception as e:
                 eprint(f"Error: {e}")
                 last_error = str(e)
+            self.signal_connected.clear()
             self.websocket = None
             if time.time() - last_connection_attempt_time >= 60:
                 # if it's been more than 60 seconds since the last connection attempt
@@ -80,6 +83,24 @@ class EdgeAgent:
             eprint(f"Sent start message: {start_message}")
             self.websocket = websocket
 
+            async def keep_alive():
+                await self.signal_connected.wait()
+                while True:
+                    await asyncio.sleep(10)
+                    if self.websocket is None:
+                        break
+                    try:
+                        await self.websocket.send(
+                            EdgeAgentToRelayMessage(
+                                inner=EtRStartMessage()
+                            ).model_dump_json()
+                        )
+                    except websockets.exceptions.ConnectionClosed as e:
+                        eprint(f"Connection closed: {e} quitting keep alive")
+                        break
+
+            asyncio.create_task(keep_alive())
+
             while True:
                 try:
                     json_data = await websocket.recv()
@@ -99,6 +120,8 @@ class EdgeAgent:
                     message = self.CustomRelayToAgentMessage.model_validate_json(
                         json_data
                     )  # pylint: disable=E1101
+
+                self.signal_connected.set()
 
                 eprint(f"Received message: {message}", only_debug=True)
                 if isinstance(message, RtEInitiateConnectionMessage):
@@ -165,13 +188,15 @@ class EdgeAgent:
                     ]
                     writer.close()
                     del self.active_connections[connection_close_message.connection_id]
+                elif isinstance(message, RtEKeepAliveMessage):
+                    eprint("Received keep alive message", only_debug=True)
                 elif self.CustomRelayToAgentMessage is not None and isinstance(
                     message, self.CustomRelayToAgentMessage
                 ):
                     try:
                         await self.handle_custom_relay_message(message)
                     except NotImplementedError:
-                        eprint(f"Custom relay message not implemented")
+                        eprint("Custom relay message not implemented")
                     except Exception as e:
                         eprint(f"Error while handling custom relay message: {e}")
                 else:

@@ -10,6 +10,7 @@ class EdgeAgentToRelayMessage(BaseModel):
         "EtRInitiateConnectionOKMessage",
         "EtRTCPDataMessage",
         "EtRConnectionResetMessage",
+        "EtRKeepAliveMessage",
     ] = Field(discriminator="kind")
 
 
@@ -44,8 +45,15 @@ class EtRConnectionResetMessage(BaseModel):
     connection_id: str
 
 
+class EtRKeepAliveMessage(BaseModel):
+    kind: Literal["keep_alive"] = "keep_alive"
+
+
 RelayToEdgeAgentMessage_Inner = Union[
-    "RtEInitiateConnectionMessage", "RtETCPDataMessage", "RtEConnectionCloseMessage"
+    "RtEInitiateConnectionMessage",
+    "RtETCPDataMessage",
+    "RtEConnectionCloseMessage",
+    "RtEKeepAliveMessage",
 ]
 
 
@@ -71,3 +79,7 @@ class RtEConnectionCloseMessage(BaseModel):
     kind: Literal["connection_close"] = "connection_close"
     message: str
     connection_id: str
+
+
+class RtEKeepAliveMessage(BaseModel):
+    kind: Literal["keep_alive"] = "keep_alive"
