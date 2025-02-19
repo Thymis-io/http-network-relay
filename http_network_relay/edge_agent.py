@@ -14,6 +14,7 @@ from .pydantic_models import (
     EtRConnectionResetMessage,
     EtRInitiateConnectionErrorMessage,
     EtRInitiateConnectionOKMessage,
+    EtRKeepAliveMessage,
     EtRStartMessage,
     EtRTCPDataMessage,
     RelayToEdgeAgentMessage,
@@ -92,7 +93,7 @@ class EdgeAgent:
                     try:
                         await self.websocket.send(
                             EdgeAgentToRelayMessage(
-                                inner=EtRStartMessage()
+                                inner=EtRKeepAliveMessage()
                             ).model_dump_json()
                         )
                     except websockets.exceptions.ConnectionClosed as e:
