@@ -273,7 +273,7 @@ class NetworkRelay:
                     ).model_dump_json()
                 )
 
-        if not (
+        if not start_message.last_error or not (
             "Input tag 'successfully_ssh_connected' found using 'kind' does not match any of the expected tags"
             in start_message.last_error
             or "Input tag 'keep_alive' found using 'kind' does not match any of the expected tags"
