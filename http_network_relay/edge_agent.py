@@ -62,6 +62,7 @@ class EdgeAgent:
                 last_error = str(e)
             self.signal_connected.clear()
             self.websocket = None
+            await self.on_connection_closed()
             if time.time() - last_connection_attempt_time >= 60:
                 # if it's been more than 60 seconds since the last connection attempt
                 # then the connection has been stable
@@ -250,3 +251,6 @@ class EdgeAgent:
 
     async def handle_custom_relay_message(self, message: BaseModel):
         raise NotImplementedError()
+
+    async def on_connection_closed(self):
+        pass
