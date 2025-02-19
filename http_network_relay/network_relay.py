@@ -262,6 +262,25 @@ class NetworkRelay:
         self.registered_agent_connections[connection_id] = edge_agent_connection
         logger.info("Registered agent connection: %s", connection_id)
 
+        async def keep_alive():
+            while True:
+                await asyncio.sleep(30)
+                if edge_agent_connection.application_state != WebSocketState.CONNECTED:
+                    break
+                await edge_agent_connection.send_text(
+                    RelayToEdgeAgentMessage(
+                        inner=RtEKeepAliveMessage()
+                    ).model_dump_json()
+                )
+
+        if not (
+            "Input tag 'successfully_ssh_connected' found using 'kind' does not match any of the expected tags"
+            in start_message.last_error
+            or "Input tag 'keep_alive' found using 'kind' does not match any of the expected tags"
+            in start_message.last_error
+        ):
+            asyncio.create_task(keep_alive())
+
         msg_loop_task = asyncio.create_task(
             self._msg_loop(edge_agent_connection, connection_id)
         )
@@ -277,19 +296,6 @@ class NetworkRelay:
         return await msg_loop_task
 
     async def _msg_loop(self, edge_agent_connection: WebSocket, connection_id: str):
-        async def keep_alive():
-            while True:
-                await asyncio.sleep(30)
-                if edge_agent_connection.application_state != WebSocketState.CONNECTED:
-                    break
-                await edge_agent_connection.send_text(
-                    RelayToEdgeAgentMessage(
-                        inner=RtEKeepAliveMessage()
-                    ).model_dump_json()
-                )
-
-        asyncio.create_task(keep_alive())
-
         while True:
             try:
                 json_data = await edge_agent_connection.receive_text()
