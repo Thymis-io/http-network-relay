@@ -8,6 +8,7 @@ from contextlib import AbstractAsyncContextManager, AbstractContextManager
 from typing import Optional, Type
 
 from fastapi import WebSocket, WebSocketDisconnect
+from fastapi.websockets import WebSocketState
 from pydantic import BaseModel, ValidationError
 
 from .access_client import (
@@ -24,6 +25,7 @@ from .pydantic_models import (
     EtRConnectionResetMessage,
     EtRInitiateConnectionErrorMessage,
     EtRInitiateConnectionOKMessage,
+    EtRKeepAliveMessage,
     EtRStartMessage,
     EtRTCPDataMessage,
     RelayToEdgeAgentMessage,
@@ -274,6 +276,19 @@ class NetworkRelay:
         return await msg_loop_task
 
     async def _msg_loop(self, edge_agent_connection: WebSocket, connection_id: str):
+        async def keep_alive():
+            while True:
+                await asyncio.sleep(30)
+                if edge_agent_connection.application_state != WebSocketState.CONNECTED:
+                    break
+                await edge_agent_connection.send_text(
+                    RelayToEdgeAgentMessage(
+                        inner=EtRKeepAliveMessage()
+                    ).model_dump_json()
+                )
+
+        asyncio.create_task(keep_alive())
+
         while True:
             try:
                 json_data = await edge_agent_connection.receive_text()
@@ -299,6 +314,8 @@ class NetworkRelay:
             elif isinstance(message, EtRConnectionResetMessage):
                 logger.info("Received connection reset message from agent: %s", message)
                 await self.handle_connection_reset_message(message)
+            elif isinstance(message, EtRKeepAliveMessage):
+                logger.debug("Received keep alive message from agent: %s", message)
             elif message_outer is not None:
                 # this is a request-response message
                 # get queue
