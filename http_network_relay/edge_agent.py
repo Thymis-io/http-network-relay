@@ -119,9 +119,13 @@ class EdgeAgent:
                 except ValidationError as e:
                     if self.CustomRelayToAgentMessage is None:
                         raise e
-                    message = self.CustomRelayToAgentMessage.model_validate_json(
-                        json_data
-                    )  # pylint: disable=E1101
+                    try:
+                        message = self.CustomRelayToAgentMessage.model_validate_json(
+                            json_data
+                        )  # pylint: disable=E1101
+                    except ValidationError as e:
+                        eprint(f"Error while validating message: {e}")
+                        continue
 
                 self.signal_connected.set()
 
