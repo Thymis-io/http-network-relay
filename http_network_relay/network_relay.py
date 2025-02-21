@@ -315,45 +315,59 @@ class NetworkRelay:
                     json_data
                 )  # pylint: disable=E1101
             logger.debug("Message received from agent: %s", message)
-            if isinstance(message, EtRTCPDataMessage):
-                logger.debug("Received TCP data message from agent: %s", message)
-                await self.handle_tcp_data_message(message)
-            elif isinstance(message, EtRConnectionResetMessage):
-                logger.info("Received connection reset message from agent: %s", message)
-                await self.handle_connection_reset_message(message)
-            elif isinstance(message, EtRKeepAliveMessage):
-                logger.debug("Received keep alive message from agent: %s", message)
-            elif message_outer is not None:
-                # this is a request-response message
-                # get queue
-                logger.debug("Got request-response message: %s", message)
-                response_queue = self.initiate_connection_answer_queues.get(
-                    message.connection_id
+
+            try:
+                await self.handle_edge_agent_message(
+                    message, message_outer, connection_id
                 )
-                if response_queue is None:
-                    logger.warning(
-                        "Got a message %s for connection_id: %s "
-                        "but no corresponding waiting queue found",
-                        message,
-                        message.connection_id,
-                    )
-                    continue
-                # put message in queue
-                await response_queue.put(message)
-            elif self.CustomAgentToRelayMessage is not None and isinstance(
-                message,
-                self.CustomAgentToRelayMessage,
-            ):
-                try:
-                    await self.handle_custom_agent_message(message, connection_id)
-                except NotImplementedError:
-                    logger.warning(
-                        "Custom agent message handling not implemented: %s", message
-                    )
-                except Exception as e:
-                    logger.error("Error handling custom agent message: %s", e)
-            else:
-                logger.warning("Unknown message received from agent: %s", message)
+            except Exception as e:
+                logger.error("Error handling message: %s", e)
+                import traceback
+
+                traceback.print_exc()
+
+    async def handle_edge_agent_message(
+        self, message: BaseModel, message_outer: BaseModel, connection_id: str
+    ):
+        if isinstance(message, EtRTCPDataMessage):
+            logger.debug("Received TCP data message from agent: %s", message)
+            await self.handle_tcp_data_message(message)
+        elif isinstance(message, EtRConnectionResetMessage):
+            logger.info("Received connection reset message from agent: %s", message)
+            await self.handle_connection_reset_message(message)
+        elif isinstance(message, EtRKeepAliveMessage):
+            logger.debug("Received keep alive message from agent: %s", message)
+        elif message_outer is not None:
+            # this is a request-response message
+            # get queue
+            logger.debug("Got request-response message: %s", message)
+            response_queue = self.initiate_connection_answer_queues.get(
+                message.connection_id
+            )
+            if response_queue is None:
+                logger.warning(
+                    "Got a message %s for connection_id: %s "
+                    "but no corresponding waiting queue found",
+                    message,
+                    message.connection_id,
+                )
+                return
+            # put message in queue
+            await response_queue.put(message)
+        elif self.CustomAgentToRelayMessage is not None and isinstance(
+            message,
+            self.CustomAgentToRelayMessage,
+        ):
+            try:
+                await self.handle_custom_agent_message(message, connection_id)
+            except NotImplementedError:
+                logger.warning(
+                    "Custom agent message handling not implemented: %s", message
+                )
+            except Exception as e:
+                logger.error("Error handling custom agent message: %s", e)
+        else:
+            logger.warning("Unknown message received from agent: %s", message)
 
     async def _create_connection(
         self,
