@@ -60,6 +60,14 @@ class EdgeAgent:
             except Exception as e:
                 eprint(f"Error: {e}")
                 last_error = str(e)
+            for connection_id, (
+                reader,
+                writer,
+            ) in self.active_connections.copy().items():
+                writer.close()
+                del self.active_connections[connection_id]
+            if self.websocket is not None:
+                await self.websocket.close()
             self.signal_connected.clear()
             self.websocket = None
             await self.on_connection_closed()
