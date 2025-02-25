@@ -63,6 +63,8 @@ class TcpConnection(AbstractContextManager):
         with self.send_buffer_lock:
             self.send_buffer.extend(content)
         asyncio.run_coroutine_threadsafe(self.send_async(), self.loop)
+        if self.closed:
+            raise EOFError()
         return len(content)
 
     async def send_async(self):
@@ -88,7 +90,7 @@ class TcpConnection(AbstractContextManager):
         with self.recv_buffer_lock:
             if len(self.recv_buffer) == 0:
                 if self.closed:
-                    return b""
+                    raise EOFError()
                 # wait for data
                 self.recv_event.clear()
 
@@ -302,7 +304,15 @@ class NetworkRelay:
                 logger.debug("Received message from agent: %s", json_data)
             except WebSocketDisconnect:
                 logger.warning("Agent disconnected: %s", connection_id)
+                agent_connection = self.registered_agent_connections.get(connection_id)
                 del self.registered_agent_connections[connection_id]
+                # remove all running connections
+                for (
+                    connection_id,
+                    connection,
+                ) in self.active_relayed_connections.copy().items():
+                    if connection.agent_connection == agent_connection:
+                        del self.active_relayed_connections[connection_id]
                 break
             message_outer = None
             try:
