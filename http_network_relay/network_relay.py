@@ -269,11 +269,21 @@ class NetworkRelay:
                 await asyncio.sleep(30)
                 if edge_agent_connection.application_state != WebSocketState.CONNECTED:
                     break
-                await edge_agent_connection.send_text(
-                    RelayToEdgeAgentMessage(
-                        inner=RtEKeepAliveMessage()
-                    ).model_dump_json()
-                )
+                try:
+                    await edge_agent_connection.send_text(
+                        RelayToEdgeAgentMessage(
+                            inner=RtEKeepAliveMessage()
+                        ).model_dump_json()
+                    )
+                except RuntimeError as e:
+                    # if contains "Unexpected ASGI message" and "after sending 'websocket.close'" then it's fine, the connection is closed
+                    str_e = e.args[0]
+                    if not (
+                        "Unexpected ASGI message" in str_e
+                        and "after sending 'websocket.close'" in str_e
+                    ):
+                        raise e
+                    break
 
         if not start_message.last_error or not (
             "Input tag 'successfully_ssh_connected' found using 'kind' does not match any of the expected tags"
