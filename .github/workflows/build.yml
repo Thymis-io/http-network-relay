@@ -20,7 +20,7 @@ jobs:
         with:
           attic_token: ${{ secrets.ATTIC_TOKEN }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          script: nix build .#default --print-build-logs
+          script: timeout 5m nix build .#default --print-build-logs
   build-aarch64:
     runs-on: ubuntu-22.04-arm
     steps:
@@ -34,4 +34,4 @@ jobs:
         with:
           attic_token: ${{ secrets.ATTIC_TOKEN }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          script: nix build .#default --print-build-logs
+          script: timeout 5m nix build .#default --print-build-logs
