@@ -1,5 +1,4 @@
 import argparse
-import asyncio
 import os
 
 from http_network_relay.access_client import AccessClient
@@ -39,7 +38,7 @@ def main():
         args.relay_url,
         args.secret,
     )
-    asyncio.run(access_client.run())
+    access_client.run()
 
 
 if __name__ == "__main__":
