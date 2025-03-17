@@ -322,7 +322,7 @@ class NetworkRelay:
                     connection,
                 ) in self.active_relayed_connections.copy().items():
                     if connection.agent_connection == agent_connection:
-                        del self.active_relayed_connections[connection_id]
+                        self.close_relayed_connection(connection_id, agent_connection)
                 break
             message_outer = None
             try:
@@ -455,10 +455,14 @@ class NetworkRelay:
     async def handle_connection_reset_message(self, message: EtRConnectionResetMessage):
         if message.connection_id not in self.active_relayed_connections:
             logger.warning(
-                f"Unknown connection_id for connection reset: %s", message.connection_id
+                "Unknown connection_id for connection reset: %s", message.connection_id
             )
             return
-        del self.active_relayed_connections[message.connection_id]
+        relayed_connection = self.active_relayed_connections[message.connection_id]
+        if isinstance(relayed_connection, TcpConnection):
+            relayed_connection.close()
+        elif isinstance(relayed_connection, TcpConnectionAsync):
+            await relayed_connection.close()
 
     async def send_message_and_wait_for_answer(
         self, agent_connection: WebSocket, message: RelayToEdgeAgentMessage_Inner
@@ -497,6 +501,7 @@ class NetworkRelay:
                     )
                 ).model_dump_json()
             )
+            await agent_connection.close()
         except RuntimeError as e:
             # if contains "Unexpected ASGI message" and "after sending 'websocket.close'" then it's fine, the connection is closed
             str_e = e.args[0]
