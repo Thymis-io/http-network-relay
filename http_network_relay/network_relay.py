@@ -501,7 +501,21 @@ class NetworkRelay:
                     )
                 ).model_dump_json()
             )
-            await agent_connection.close()
+
+        except RuntimeError as e:
+            # if contains "Unexpected ASGI message" and "after sending 'websocket.close'" then it's fine, the connection is closed
+            str_e = e.args[0]
+            if not (
+                "Unexpected ASGI message" in str_e
+                and "after sending 'websocket.close'" in str_e
+            ):
+                raise e
+        try:
+            access_client_connection = self.active_access_client_connections.get(
+                connection_id
+            )
+            if access_client_connection:
+                await access_client_connection.close()
         except RuntimeError as e:
             # if contains "Unexpected ASGI message" and "after sending 'websocket.close'" then it's fine, the connection is closed
             str_e = e.args[0]
@@ -605,8 +619,8 @@ class NetworkRelay:
                 )
         if connection.id in self.active_access_client_connections:
             del self.active_access_client_connections[connection.id]
+        await access_client_connection.close()
         await reader
-        access_client_connection.close()
 
     async def access_client_receive_thread(
         self,
