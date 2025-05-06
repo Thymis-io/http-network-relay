@@ -254,14 +254,14 @@ class NetworkRelay:
         if connection_id in self.registered_agent_connections:
             # check wether the other websocket is still open, if not remove it
             if self.registered_agent_connections[connection_id].closed:
-                del self.registered_agent_connections[connection_id]
+                await self.edge_agent_connection_close(connection_id)
             else:
                 logger.warning("Agent already registered: %s", connection_id)
                 # close the connection
                 await edge_agent_connection.close()
                 return
 
-        self.registered_agent_connections[connection_id] = edge_agent_connection
+        await self.edge_agent_connection_open(connection_id, edge_agent_connection)
         logger.info("Registered agent connection: %s", connection_id)
 
         async def keep_alive():
@@ -314,15 +314,7 @@ class NetworkRelay:
                 logger.debug("Received message from agent: %s", json_data)
             except WebSocketDisconnect:
                 logger.warning("Agent disconnected: %s", connection_id)
-                agent_connection = self.registered_agent_connections.get(connection_id)
-                del self.registered_agent_connections[connection_id]
-                # remove all running connections
-                for (
-                    connection_id,
-                    connection,
-                ) in self.active_relayed_connections.copy().items():
-                    if connection.agent_connection == agent_connection:
-                        self.close_relayed_connection(connection_id, agent_connection)
+                await self.edge_agent_connection_close(connection_id)
                 break
             message_outer = None
             try:
@@ -594,8 +586,8 @@ class NetworkRelay:
             await access_client_connection.close()
             return
 
-        logger.info("Connection created: %s", connection)
-        self.active_access_client_connections[connection.id] = connection
+        logger.info("access client connection created: %s", connection)
+        await self.access_client_connection_open(connection.id, connection)
         reader = asyncio.create_task(
             self.access_client_receive_thread(access_client_connection, connection)
         )
@@ -617,8 +609,7 @@ class NetworkRelay:
                 logger.warning(
                     "Unknown message received from access client: %s", message
                 )
-        if connection.id in self.active_access_client_connections:
-            del self.active_access_client_connections[connection.id]
+        await self.access_client_connection_close(connection.id)
         await access_client_connection.close()
         await reader
 
@@ -658,3 +649,32 @@ class NetworkRelay:
 
     async def get_agent_connection_id_for_access_client(self, connection_target: str):
         return connection_target
+
+    async def access_client_connection_open(
+        self,
+        connection_id: str,
+        access_client_connection: TcpConnection | TcpConnectionAsync,
+    ):
+        self.active_access_client_connections[connection_id] = access_client_connection
+
+    async def access_client_connection_close(self, connection_id: str):
+        if connection_id in self.active_access_client_connections:
+            del self.active_access_client_connections[connection_id]
+
+    async def edge_agent_connection_open(
+        self, connection_id: str, edge_agent_connection: WebSocket
+    ):
+        self.registered_agent_connections[connection_id] = edge_agent_connection
+
+    async def edge_agent_connection_close(self, edge_agent_connection_id: str):
+        agent_connection = self.registered_agent_connections.get(
+            edge_agent_connection_id
+        )
+        if edge_agent_connection_id in self.registered_agent_connections:
+            del self.registered_agent_connections[edge_agent_connection_id]
+        if agent_connection:
+            # remove all running connections
+            active_relayed_connections = self.active_relayed_connections.copy()
+            for connection_id, connection in active_relayed_connections.items():
+                if connection.agent_connection == agent_connection:
+                    await self.close_relayed_connection(connection_id, agent_connection)
