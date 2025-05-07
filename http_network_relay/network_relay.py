@@ -276,13 +276,11 @@ class NetworkRelay:
                         ).model_dump_json()
                     )
                 except RuntimeError as e:
-                    # if contains "Unexpected ASGI message" and "after sending 'websocket.close'" then it's fine, the connection is closed
-                    str_e = e.args[0]
-                    if not (
-                        "Unexpected ASGI message" in str_e
-                        and "after sending 'websocket.close'" in str_e
-                    ):
+                    # if the connection is closed, it's fine
+                    if not self.is_closed_error(e):
                         raise e
+                    break
+                except WebSocketDisconnect:
                     break
 
         if not start_message.last_error or not (
@@ -480,6 +478,13 @@ class NetworkRelay:
             RelayToEdgeAgentMessage(inner=message).model_dump_json()
         )
 
+    def is_closed_error(self, error: RuntimeError):
+        str_e = error.args[0]
+        return (
+            "Unexpected ASGI message" in str_e
+            and "after sending 'websocket.close'" in str_e
+        ) or str_e == 'Cannot call "send" once a close message has been sent.'
+
     async def close_relayed_connection(
         self, connection_id: str, agent_connection: WebSocket
     ):
@@ -495,13 +500,12 @@ class NetworkRelay:
             )
 
         except RuntimeError as e:
-            # if contains "Unexpected ASGI message" and "after sending 'websocket.close'" then it's fine, the connection is closed
-            str_e = e.args[0]
-            if not (
-                "Unexpected ASGI message" in str_e
-                and "after sending 'websocket.close'" in str_e
-            ):
+            # if the connection is closed, it's fine
+            if not self.is_closed_error(e):
                 raise e
+        except WebSocketDisconnect:
+            # if the agent is already disconnected, it's fine
+            pass
         try:
             access_client_connection = self.active_access_client_connections.get(
                 connection_id
@@ -509,15 +513,12 @@ class NetworkRelay:
             if access_client_connection:
                 await access_client_connection.close()
         except RuntimeError as e:
-            # if contains "Unexpected ASGI message" and "after sending 'websocket.close'" then it's fine, the connection is closed
-            str_e = e.args[0]
-            if not (
-                "Unexpected ASGI message" in str_e
-                and "after sending 'websocket.close'" in str_e
-            ):
+            # if the connection is closed, it's fine
+            if not self.is_closed_error(e):
                 raise e
         # remove connection
-        del self.active_relayed_connections[connection_id]
+        if connection_id in self.active_relayed_connections:
+            del self.active_relayed_connections[connection_id]
 
     async def handle_custom_agent_message(self, message: BaseModel, connection_id: str):
         raise NotImplementedError()
