@@ -23,7 +23,7 @@
       "description": "Group poetry non-major updates together",
       "groupName": "poetry non-major updates",
       "groupSlug": "poetry-non-major-updates",
-      "matchDatasources": ["poetry"],
+      "matchDatasources": ["pypi"],
       "matchUpdateTypes": ["minor", "patch"]
     },
     {
