@@ -1,31 +1,59 @@
-[tool.poetry]
+# [tool.poetry]
+# name = "http-network-relay"
+# version = "0.1.0"
+# description = ""
+# authors = ["Eli Kogan-Wang <elikowa@gmail.com>", "Adrian Block <adrian@thymis.io>"]
+# readme = "README.md"
+# packages = [
+#     { include = "http_network_relay" }
+# ]
+
+# [tool.poetry.dependencies]
+# python = "^3.11"
+# fastapi = {extras = ["standard"], version = "^0.115.5"}
+# pydantic = "^2.9.2"
+# websockets = "^15.0.0"
+# uvicorn = ">=0.34.0"
+# pytest = "^8.3.3"
+# pytest-timeout = "^2.3.1"
+
+# [tool.poetry.group.dev.dependencies]
+# pytest = "^8.3.3"
+# pytest-timeout = "^2.3.1"
+
+# [build-system]
+# requires = ["poetry-core"]
+# build-backend = "poetry.core.masonry.api"
+
+# [tool.poetry.scripts]
+# edge-agent = 'http_network_relay.edge_agent_example:main'
+# network-relay = 'http_network_relay.network_relay_example:main'
+# access-client = 'http_network_relay.access_client_example:main'
+
+[project]
 name = "http-network-relay"
 version = "0.1.0"
 description = ""
-authors = ["Eli Kogan-Wang <elikowa@gmail.com>", "Adrian Block <adrian@thymis.io>"]
+authors = [
+    { name = "Eli Kogan-Wang", email = "elikowa@gmail.com" },
+    { name = "Adrian Block", email = "adrian@thymis.io" }
+]
 readme = "README.md"
-packages = [
-    { include = "http_network_relay" }
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi[standard]>=0.115.5",
+    "pydantic>=2.9.2",
+    "websockets>=15.0.0",
+    "uvicorn>=0.34.0",
+    "pytest>=8.3.3",
+    "pytest-timeout>=2.3.1"
 ]
 
-[tool.poetry.dependencies]
-python = "^3.11"
-fastapi = {extras = ["standard"], version = "^0.115.5"}
-pydantic = "^2.9.2"
-websockets = "^15.0.0"
-uvicorn = ">=0.34.0"
-pytest = "^8.3.3"
-pytest-timeout = "^2.3.1"
-
-[tool.poetry.group.dev.dependencies]
-pytest = "^8.3.3"
-pytest-timeout = "^2.3.1"
-
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
-
-[tool.poetry.scripts]
+[project.scripts]
 edge-agent = 'http_network_relay.edge_agent_example:main'
 network-relay = 'http_network_relay.network_relay_example:main'
 access-client = 'http_network_relay.access_client_example:main'
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
