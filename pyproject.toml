@@ -10,7 +10,7 @@ packages = [
 
 [tool.poetry.dependencies]
 python = "^3.11"
-fastapi = {extras = ["standard"], version = "^0.115.5"}
+fastapi = {extras = ["standard"], version = "^0.123.0"}
 pydantic = "^2.9.2"
 websockets = "^15.0.0"
 uvicorn = ">=0.34.0"
