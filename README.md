@@ -16,6 +16,9 @@ The `access-client` is a script that can be used as a ProxyCommand in an SSH con
 It will establish a WebSocket connection to the server and forward the SSH connection over the WebSocket connection.
 It can also be used as a general purpose proxy command for other protocols.
 
+If you're using `uv`, you can use this project directly by running `uvx --from git+https://github.com/Thymis-io/http-network-relay <command> [args...]`.
+Where `<command>` is one of `network-relay`, `edge-agent` or `access-client`.
+
 ## Server Configuration and Usage
 
 The **Network Relay** server binary is designed to operate on a machine with a public IP address. For enhanced security, it is recommended to deploy the server behind a reverse proxy that handles TLS termination, ensuring that clients can verify the server's identity.
