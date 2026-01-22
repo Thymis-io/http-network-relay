@@ -584,6 +584,7 @@ class NetworkRelay:
                     inner=RtAErrorMessage(message=str(e))
                 ).model_dump_json()
             )
+            await connection.close()
             await access_client_connection.close()
             return
 
@@ -611,6 +612,7 @@ class NetworkRelay:
                     "Unknown message received from access client: %s", message
                 )
         await self.access_client_connection_close(connection.id)
+        await connection.close()
         await access_client_connection.close()
         await reader
 
