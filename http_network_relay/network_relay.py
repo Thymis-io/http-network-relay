@@ -585,7 +585,11 @@ class NetworkRelay:
                 ).model_dump_json()
             )
             await connection.close()
-            await access_client_connection.close()
+            try:
+                await access_client_connection.close()
+            except RuntimeError as re:
+                if not self.is_closed_error(re):
+                    raise re
             return
 
         logger.info("access client connection created: %s", connection)
@@ -613,7 +617,11 @@ class NetworkRelay:
                 )
         await self.access_client_connection_close(connection.id)
         await connection.close()
-        await access_client_connection.close()
+        try:
+            await access_client_connection.close()
+        except RuntimeError as e:
+            if not self.is_closed_error(e):
+                raise e
         await reader
 
     async def access_client_receive_thread(
