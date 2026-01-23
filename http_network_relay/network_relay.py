@@ -213,9 +213,9 @@ class NetworkRelay:
         self.active_relayed_connections: dict[
             str, TcpConnection | TcpConnectionAsync
         ] = {}  # connection_id -> TcpConnection
-        self.active_access_client_connections = (
-            {}
-        )  # connection_id -> WebSocket for access clients
+        self.active_access_client_connections: dict[
+            str, WebSocket
+        ] = {}  # connection_id -> WebSocket for access clients
         self.loop: Optional[asyncio.AbstractEventLoop] = None
 
     async def accept_ws_and_start_msg_loop_for_edge_agents(
@@ -593,7 +593,7 @@ class NetworkRelay:
             return
 
         logger.info("access client connection created: %s", connection)
-        await self.access_client_connection_open(connection.id, connection)
+        self.active_access_client_connections[connection.id] = access_client_connection
         reader = asyncio.create_task(
             self.access_client_receive_thread(access_client_connection, connection)
         )
@@ -602,8 +602,8 @@ class NetworkRelay:
                 json_data = await access_client_connection.receive_text()
             except WebSocketDisconnect:
                 logger.info("access client disconnected: %s", connection.id)
-                if connection.id in self.active_access_client_connections:
-                    del self.active_access_client_connections[connection.id]
+                if connection.id in self.active_relayed_connections:
+                    del self.active_relayed_connections[connection.id]
                 break
             message = AccessClientToRelayMessage.model_validate_json(json_data)
             if isinstance(message.inner, AtRTCPDataMessage):
@@ -629,7 +629,7 @@ class NetworkRelay:
         access_client_connection: WebSocket,
         relayed_connection: TcpConnectionAsync,
     ):
-        while relayed_connection.id in self.active_access_client_connections:
+        while relayed_connection.id in self.active_relayed_connections:
             try:
                 data = await relayed_connection.read(1024)
                 if not data:
@@ -650,8 +650,8 @@ class NetworkRelay:
 
                 traceback.print_exc()
                 break
-        if relayed_connection.id in self.active_access_client_connections:
-            del self.active_access_client_connections[relayed_connection.id]
+        if relayed_connection.id in self.active_relayed_connections:
+            del self.active_relayed_connections[relayed_connection.id]
 
     async def get_access_client_permission(
         self, start_message: AtRStartMessage, access_client_connection
@@ -660,13 +660,6 @@ class NetworkRelay:
 
     async def get_agent_connection_id_for_access_client(self, connection_target: str):
         return connection_target
-
-    async def access_client_connection_open(
-        self,
-        connection_id: str,
-        access_client_connection: TcpConnection | TcpConnectionAsync,
-    ):
-        self.active_access_client_connections[connection_id] = access_client_connection
 
     async def access_client_connection_close(self, connection_id: str):
         if connection_id in self.active_access_client_connections:

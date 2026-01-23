@@ -64,6 +64,9 @@ class EdgeAgent:
                 reader,
                 writer,
             ) in self.active_connections.copy().items():
+                eprint(
+                    f"Closing active connection: {connection_id}, due to disconnect from relay"
+                )
                 writer.close()
                 del self.active_connections[connection_id]
             if self.websocket is not None:
@@ -172,7 +175,10 @@ class EdgeAgent:
                     try:
                         await writer.drain()
                     except ConnectionResetError:
-                        eprint(f"Connection reset while writing data")
+                        eprint("Connection reset while writing data")
+                        eprint(
+                            f"Closing active connection: {tcp_data_message.connection_id}, due to connection reset"
+                        )
                         writer.close()
                         del self.active_connections[tcp_data_message.connection_id]
                         await websocket.send(
@@ -200,6 +206,9 @@ class EdgeAgent:
                     reader, writer = self.active_connections[
                         connection_close_message.connection_id
                     ]
+                    eprint(
+                        f"Closing active connection: {connection_close_message.connection_id}, due to connection close message from relay"
+                    )
                     writer.close()
                     del self.active_connections[connection_close_message.connection_id]
                 elif isinstance(message, RtEKeepAliveMessage):
