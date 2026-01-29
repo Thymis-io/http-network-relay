@@ -95,15 +95,16 @@ class EdgeAgent:
             await websocket.send(start_message.model_dump_json())
             eprint(f"Sent start message: {start_message}")
             self.websocket = websocket
+            self.signal_connected.set()
 
             async def keep_alive():
                 await self.signal_connected.wait()
                 while True:
                     await asyncio.sleep(10)
-                    if self.websocket is None:
+                    if self.websocket is None or self.websocket != websocket:
                         break
                     try:
-                        await self.websocket.send(
+                        await websocket.send(
                             EdgeAgentToRelayMessage(
                                 inner=EtRKeepAliveMessage()
                             ).model_dump_json()
@@ -137,8 +138,6 @@ class EdgeAgent:
                     except ValidationError as e:
                         eprint(f"Error while validating message: {e}")
                         continue
-
-                self.signal_connected.set()
 
                 eprint(f"Received message: {message}", only_debug=True)
                 if isinstance(message, RtEInitiateConnectionMessage):
