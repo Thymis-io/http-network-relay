@@ -677,6 +677,11 @@ class NetworkRelay:
         if edge_agent_connection_id in self.registered_agent_connections:
             del self.registered_agent_connections[edge_agent_connection_id]
         if agent_connection:
+            # remove from agent_connections list
+            try:
+                self.agent_connections.remove(agent_connection)
+            except ValueError:
+                pass  # already removed or never added (e.g. rejected before append)
             # remove all running connections
             active_relayed_connections = self.active_relayed_connections.copy()
             for connection_id, connection in active_relayed_connections.items():
