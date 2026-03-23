@@ -13,6 +13,6 @@ runs:
       with:
         github_access_token: ${{ inputs.github_token }}
         extra_nix_config: |
-          system-features = kvm
+          system-features = kvm big-parallel
           extra-trusted-public-keys = cache.thymis.io-1:pEeKkNXiK17TLKls0KM8cEp0NGy08gc5chAmCyuQo8M=
           extra-substituters = https://cache.thymis.io
