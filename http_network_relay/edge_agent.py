@@ -249,18 +249,37 @@ class EdgeAgent:
 
         # start async coroutine to read from the TCP connection and send it to the server
         async def read_from_tcp_and_send():
-            while True:
-                data = await reader.read(1024)
-                if not data:
-                    break
-                await server_websocket.send(
-                    EdgeAgentToRelayMessage(
-                        inner=EtRTCPDataMessage(
-                            connection_id=message.connection_id,
-                            data_base64=base64.b64encode(data).decode("utf-8"),
-                        )
-                    ).model_dump_json()
-                )
+            try:
+                while True:
+                    data = await reader.read(1024)
+                    if not data:
+                        break
+                    await server_websocket.send(
+                        EdgeAgentToRelayMessage(
+                            inner=EtRTCPDataMessage(
+                                connection_id=message.connection_id,
+                                data_base64=base64.b64encode(data).decode("utf-8"),
+                            )
+                        ).model_dump_json()
+                    )
+            finally:
+                # Close the writer and remove from active_connections regardless of
+                # how the loop exits (EOF, exception, or relay-initiated close).
+                # Without this, every SSH session that ends naturally leaks one fd
+                # until the process hits its fd limit.
+                writer.close()
+                self.active_connections.pop(message.connection_id, None)
+                try:
+                    await server_websocket.send(
+                        EdgeAgentToRelayMessage(
+                            inner=EtRConnectionResetMessage(
+                                message="Connection closed by target",
+                                connection_id=message.connection_id,
+                            )
+                        ).model_dump_json()
+                    )
+                except Exception:
+                    pass  # websocket may already be closed
 
         asyncio.create_task(read_from_tcp_and_send())
 
