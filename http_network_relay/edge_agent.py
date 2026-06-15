@@ -10,6 +10,7 @@ from pydantic import BaseModel, ValidationError
 from websockets.asyncio.client import ClientConnection, connect
 
 from .pydantic_models import (
+    READ_CHUNK_SIZE,
     EdgeAgentToRelayMessage,
     EtRConnectionResetMessage,
     EtRInitiateConnectionErrorMessage,
@@ -22,6 +23,8 @@ from .pydantic_models import (
     RtEInitiateConnectionMessage,
     RtEKeepAliveMessage,
     RtETCPDataMessage,
+    decode_tcp_binary_frame,
+    encode_tcp_binary_frame,
 )
 
 debug = False
@@ -86,12 +89,12 @@ class EdgeAgent:
 
     async def connect_to_server(self, last_error):
         async with connect(self.relay_url, max_size=2**32) as websocket:
-            start_message = EdgeAgentToRelayMessage(
-                inner=EtRStartMessage.model_validate(
-                    (await self.create_start_message(last_error)).model_dump(),
-                    from_attributes=True,
-                )
+            inner_start = EtRStartMessage.model_validate(
+                (await self.create_start_message(last_error)).model_dump(),
+                from_attributes=True,
             )
+            inner_start.supports_binary = True
+            start_message = EdgeAgentToRelayMessage(inner=inner_start)
             await websocket.send(start_message.model_dump_json())
             eprint(f"Sent start message: {start_message}")
             self.websocket = websocket
@@ -124,6 +127,11 @@ class EdgeAgent:
                 except websockets.exceptions.ConnectionClosedOK as e:
                     eprint(f"Connection closed OK: {e}")
                     break
+                if isinstance(json_data, (bytes, bytearray)):
+                    # Hot path: raw TCP payload framed as connection_id + bytes.
+                    conn_id, payload = decode_tcp_binary_frame(json_data)
+                    await self.write_to_connection(conn_id, payload, websocket)
+                    continue
                 try:
                     message = RelayToEdgeAgentMessage.model_validate_json(
                         json_data
@@ -156,38 +164,11 @@ class EdgeAgent:
                             ).model_dump_json()
                         )
                 elif isinstance(message, RtETCPDataMessage):
-                    tcp_data_message = message
-                    eprint(
-                        f"Received TCP data message: {tcp_data_message}",
-                        only_debug=True,
+                    await self.write_to_connection(
+                        message.connection_id,
+                        base64.b64decode(message.data_base64),
+                        websocket,
                     )
-                    # associate the connection_id with the websocket
-                    if tcp_data_message.connection_id not in self.active_connections:
-                        eprint(
-                            f"Unknown connection_id: {tcp_data_message.connection_id}"
-                        )
-                        continue
-                    reader, writer = self.active_connections[
-                        tcp_data_message.connection_id
-                    ]
-                    writer.write(base64.b64decode(tcp_data_message.data_base64))
-                    try:
-                        await writer.drain()
-                    except ConnectionResetError:
-                        eprint("Connection reset while writing data")
-                        eprint(
-                            f"Closing active connection: {tcp_data_message.connection_id}, due to connection reset"
-                        )
-                        writer.close()
-                        del self.active_connections[tcp_data_message.connection_id]
-                        await websocket.send(
-                            EdgeAgentToRelayMessage(
-                                inner=EtRConnectionResetMessage(
-                                    message="Connection reset while writing data",
-                                    connection_id=tcp_data_message.connection_id,
-                                )
-                            ).model_dump_json()
-                        )
                 elif isinstance(message, RtEConnectionCloseMessage):
                     connection_close_message = message
                     eprint(
@@ -224,6 +205,30 @@ class EdgeAgent:
                 else:
                     eprint(f"Unknown message received: {message}")
 
+    async def write_to_connection(self, connection_id, data, server_websocket):
+        if connection_id not in self.active_connections:
+            eprint(f"Unknown connection_id: {connection_id}")
+            return
+        writer = self.active_connections[connection_id][1]
+        writer.write(data)
+        try:
+            await writer.drain()
+        except ConnectionResetError:
+            eprint("Connection reset while writing data")
+            eprint(
+                f"Closing active connection: {connection_id}, due to connection reset"
+            )
+            writer.close()
+            del self.active_connections[connection_id]
+            await server_websocket.send(
+                EdgeAgentToRelayMessage(
+                    inner=EtRConnectionResetMessage(
+                        message="Connection reset while writing data",
+                        connection_id=connection_id,
+                    )
+                ).model_dump_json()
+            )
+
     async def initiate_connection(
         self, message: RtEInitiateConnectionMessage, server_websocket: ClientConnection
     ):
@@ -251,17 +256,22 @@ class EdgeAgent:
         async def read_from_tcp_and_send():
             try:
                 while True:
-                    data = await reader.read(1024)
+                    data = await reader.read(READ_CHUNK_SIZE)
                     if not data:
                         break
-                    await server_websocket.send(
-                        EdgeAgentToRelayMessage(
-                            inner=EtRTCPDataMessage(
-                                connection_id=message.connection_id,
-                                data_base64=base64.b64encode(data).decode("utf-8"),
-                            )
-                        ).model_dump_json()
-                    )
+                    if message.supports_binary:
+                        await server_websocket.send(
+                            encode_tcp_binary_frame(message.connection_id, data)
+                        )
+                    else:
+                        await server_websocket.send(
+                            EdgeAgentToRelayMessage(
+                                inner=EtRTCPDataMessage(
+                                    connection_id=message.connection_id,
+                                    data_base64=base64.b64encode(data).decode("utf-8"),
+                                )
+                            ).model_dump_json()
+                        )
             finally:
                 # Close the writer and remove from active_connections regardless of
                 # how the loop exits (EOF, exception, or relay-initiated close).

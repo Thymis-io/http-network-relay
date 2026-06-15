@@ -8,6 +8,8 @@ import websockets
 from pydantic import BaseModel, Field
 from websockets.asyncio.client import connect
 
+from .pydantic_models import READ_CHUNK_SIZE
+
 
 class AccessClientToRelayMessage(BaseModel):
     inner: Union["AtRStartMessage", "AtRTCPDataMessage"] = Field(discriminator="kind")
@@ -20,6 +22,7 @@ class AtRStartMessage(BaseModel):
     target_port: int
     protocol: str
     secret: str
+    supports_binary: bool | None = False
 
 
 class AtRTCPDataMessage(BaseModel):
@@ -40,6 +43,7 @@ class RtAErrorMessage(BaseModel):
 
 class RtAStartOKMessage(BaseModel):
     kind: Literal["start_ok"] = "start_ok"
+    supports_binary: bool | None = False
 
 
 class RtATCPDataMessage(BaseModel):
@@ -87,6 +91,7 @@ class AccessClient:
                     target_port=self.target_port,
                     protocol=self.protocol,
                     secret=self.secret,
+                    supports_binary=True,
                 )
             )
             await websocket.send(start_message.model_dump_json())
@@ -96,8 +101,13 @@ class AccessClient:
                 start_response_json
             )
             eprint(f"Received start response: {start_response}")
+            relay_supports_binary = False
             if isinstance(start_response.inner, RtAStartOKMessage):
+                relay_supports_binary = getattr(
+                    start_response.inner, "supports_binary", False
+                )
                 eprint(f"Received OK message: {start_response}")
+                eprint(f"Relay supports binary: {relay_supports_binary}")
             elif isinstance(start_response.inner, RtAErrorMessage):
                 eprint(f"Received error message: {start_response}")
                 return
@@ -109,16 +119,19 @@ class AccessClient:
                 reader_protocol = asyncio.StreamReaderProtocol(reader)
                 await loop.connect_read_pipe(lambda: reader_protocol, sys.stdin)
                 while True:
-                    data = await reader.read(1024)
+                    data = await reader.read(READ_CHUNK_SIZE)
                     if not data:
                         break
-                    await websocket.send(
-                        AccessClientToRelayMessage(
-                            inner=AtRTCPDataMessage(
-                                data_base64=base64.b64encode(data).decode("utf-8")
-                            )
-                        ).model_dump_json()
-                    )
+                    if relay_supports_binary:
+                        await websocket.send(data)
+                    else:
+                        await websocket.send(
+                            AccessClientToRelayMessage(
+                                inner=AtRTCPDataMessage(
+                                    data_base64=base64.b64encode(data).decode("utf-8")
+                                )
+                            ).model_dump_json()
+                        )
 
             read_stdin_and_send_task = asyncio.create_task(read_stdin_and_send())
 
@@ -131,6 +144,10 @@ class AccessClient:
                 except websockets.exceptions.ConnectionClosedOK as e:
                     eprint(f"Connection closed: OK: {e}")
                     break
+                if isinstance(json_data, (bytes, bytearray)):
+                    sys.stdout.buffer.write(json_data)
+                    sys.stdout.flush()
+                    continue
                 message = RelayToAccessClientMessage.model_validate_json(json_data)
                 eprint(f"Received message: {message}", only_debug=True)
                 if isinstance(message.inner, RtATCPDataMessage):
