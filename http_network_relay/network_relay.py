@@ -21,6 +21,7 @@ from .access_client import (
     RtATCPDataMessage,
 )
 from .pydantic_models import (
+    READ_CHUNK_SIZE,
     EdgeAgentToRelayMessage,
     EtRConnectionResetMessage,
     EtRInitiateConnectionErrorMessage,
@@ -34,6 +35,8 @@ from .pydantic_models import (
     RtEInitiateConnectionMessage,
     RtEKeepAliveMessage,
     RtETCPDataMessage,
+    decode_tcp_binary_frame,
+    encode_tcp_binary_frame,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,6 +50,7 @@ class TcpConnection(AbstractContextManager):
         relay: "NetworkRelay",
         agent_connection: WebSocket,
         loop,
+        agent_supports_binary: bool = False,
     ):
         self.id = connection_id
         self.relay = relay
@@ -58,6 +62,7 @@ class TcpConnection(AbstractContextManager):
         self.send_buffer = bytearray()
         self.send_buffer_lock = threading.Lock()
         self.loop = loop
+        self.agent_supports_binary = agent_supports_binary
 
     def send(self, content):
         with self.send_buffer_lock:
@@ -71,13 +76,18 @@ class TcpConnection(AbstractContextManager):
         with self.send_buffer_lock:
             content = self.send_buffer
             self.send_buffer = bytearray()
-            await self.relay.send_connection_message(
-                self.agent_connection,
-                RtETCPDataMessage(
-                    connection_id=self.id,
-                    data_base64=base64.b64encode(content).decode(),
-                ),
-            )
+            if self.agent_supports_binary:
+                await self.relay.send_connection_binary(
+                    self.agent_connection, self.id, content
+                )
+            else:
+                await self.relay.send_connection_message(
+                    self.agent_connection,
+                    RtETCPDataMessage(
+                        connection_id=self.id,
+                        data_base64=base64.b64encode(content).decode(),
+                    ),
+                )
 
     def fill_recv(self, data: bytes):
         with self.recv_buffer_lock:
@@ -138,6 +148,7 @@ class TcpConnectionAsync(AbstractAsyncContextManager):
         relay: "NetworkRelay",
         agent_connection: WebSocket,
         loop,
+        agent_supports_binary: bool = False,
     ):
         self.id = connection_id
         self.relay = relay
@@ -146,8 +157,13 @@ class TcpConnectionAsync(AbstractAsyncContextManager):
         self.timeout = None
         self.event = asyncio.Event()
         self.loop = loop
+        self.agent_supports_binary = agent_supports_binary
 
     async def send(self, content):
+        if self.agent_supports_binary:
+            return await self.relay.send_connection_binary(
+                self.agent_connection, self.id, content
+            )
         return await self.relay.send_connection_message(
             self.agent_connection,
             RtETCPDataMessage(
@@ -216,6 +232,8 @@ class NetworkRelay:
         self.active_access_client_connections: dict[
             str, WebSocket
         ] = {}  # connection_id -> WebSocket for access clients
+        # agent_connection_id -> whether that agent negotiated binary framing
+        self.agent_connection_id_to_supports_binary: dict[str, bool] = {}
         self.loop: Optional[asyncio.AbstractEventLoop] = None
 
     async def accept_ws_and_start_msg_loop_for_edge_agents(
@@ -228,6 +246,7 @@ class NetworkRelay:
         start_message = EdgeAgentToRelayMessage.model_validate_json(
             start_message_json_data
         ).inner
+        agent_supports_binary = getattr(start_message, "supports_binary", False)
         logger.info("Message received from agent: %s", start_message)
         if not isinstance(start_message, EtRStartMessage):
             logger.warning("Unknown message received from agent: %s", start_message)
@@ -249,6 +268,9 @@ class NetworkRelay:
             await edge_agent_connection.close()
             return
         connection_id = connection_id_or_falsy
+        self.agent_connection_id_to_supports_binary[
+            connection_id
+        ] = agent_supports_binary
 
         # check if the agent is already registered
         if connection_id in self.registered_agent_connections:
@@ -308,12 +330,23 @@ class NetworkRelay:
     async def _msg_loop(self, edge_agent_connection: WebSocket, connection_id: str):
         while True:
             try:
-                json_data = await edge_agent_connection.receive_text()
-                logger.debug("Received message from agent: %s", json_data)
+                raw = await edge_agent_connection.receive()
             except WebSocketDisconnect:
                 logger.warning("Agent disconnected: %s", connection_id)
                 await self.edge_agent_connection_close(connection_id)
                 break
+            if raw["type"] == "websocket.disconnect":
+                logger.warning("Agent disconnected: %s", connection_id)
+                await self.edge_agent_connection_close(connection_id)
+                break
+            binary = raw.get("bytes")
+            if binary is not None:
+                # Hot path: raw TCP payload framed as connection_id + bytes.
+                conn_id, payload = decode_tcp_binary_frame(binary)
+                await self.handle_tcp_binary_data(conn_id, payload)
+                continue
+            json_data = raw["text"]
+            logger.debug("Received message from agent: %s", json_data)
             message_outer = None
             try:
                 message_outer = EdgeAgentToRelayMessage.model_validate_json(json_data)
@@ -392,8 +425,15 @@ class NetworkRelay:
             raise ValueError(f"Unknown agent: {agent_connection_id}")
         # step 0. create TcpConnection object so that messages sent immediately after tcp creation can be received by the main loop
         connection_id = str(uuid.uuid4())
+        agent_supports_binary = self.agent_connection_id_to_supports_binary.get(
+            agent_connection_id, False
+        )
         connection = connection_class(
-            connection_id, self, agent_connection, asyncio.get_event_loop()
+            connection_id,
+            self,
+            agent_connection,
+            asyncio.get_event_loop(),
+            agent_supports_binary=agent_supports_binary,
         )
         self.active_relayed_connections[connection_id] = connection
         # step 1. send initiate connection message to agent
@@ -404,6 +444,7 @@ class NetworkRelay:
                 target_port=target_port,
                 protocol=protocol,
                 connection_id=str(connection_id),
+                supports_binary=True,
             ),
         )
         match response:
@@ -442,6 +483,15 @@ class NetworkRelay:
         connection = self.active_relayed_connections[message.connection_id]
         connection.fill_recv(base64.b64decode(message.data_base64))
 
+    async def handle_tcp_binary_data(self, connection_id: str, payload: bytes):
+        connection = self.active_relayed_connections.get(connection_id)
+        if connection is None:
+            logger.warning(
+                "Unknown connection_id for binary TCP data: %s", connection_id
+            )
+            return
+        connection.fill_recv(payload)
+
     async def handle_connection_reset_message(self, message: EtRConnectionResetMessage):
         if message.connection_id not in self.active_relayed_connections:
             logger.warning(
@@ -476,6 +526,13 @@ class NetworkRelay:
     ):
         await agent_connection.send_text(
             RelayToEdgeAgentMessage(inner=message).model_dump_json()
+        )
+
+    async def send_connection_binary(
+        self, agent_connection: WebSocket, connection_id: str, payload: bytes
+    ):
+        await agent_connection.send_bytes(
+            encode_tcp_binary_frame(connection_id, payload)
         )
 
     def is_closed_error(self, error: RuntimeError):
@@ -539,6 +596,7 @@ class NetworkRelay:
             logger.warning("Unknown message received from access client: %s", message)
             return
         start_message = message.inner
+        access_client_supports_binary = getattr(start_message, "supports_binary", False)
         # check if credentials are correct
         if not await self.get_access_client_permission(
             start_message, access_client_connection
@@ -574,7 +632,9 @@ class NetworkRelay:
             )
             await access_client_connection.send_text(
                 RelayToAccessClientMessage(
-                    inner=RtAStartOKMessage(connection_id=connection.id)
+                    inner=RtAStartOKMessage(
+                        connection_id=connection.id, supports_binary=True
+                    )
                 ).model_dump_json()
             )
         except ValueError as e:
@@ -595,17 +655,30 @@ class NetworkRelay:
         logger.info("access client connection created: %s", connection)
         self.active_access_client_connections[connection.id] = access_client_connection
         reader = asyncio.create_task(
-            self.access_client_receive_thread(access_client_connection, connection)
+            self.access_client_receive_thread(
+                access_client_connection, connection, access_client_supports_binary
+            )
         )
         while connection.id in self.active_access_client_connections:
             try:
-                json_data = await access_client_connection.receive_text()
+                raw = await access_client_connection.receive()
             except WebSocketDisconnect:
                 logger.info("access client disconnected: %s", connection.id)
                 if connection.id in self.active_relayed_connections:
                     del self.active_relayed_connections[connection.id]
                 break
-            message = AccessClientToRelayMessage.model_validate_json(json_data)
+            if raw["type"] == "websocket.disconnect":
+                logger.info("access client disconnected: %s", connection.id)
+                if connection.id in self.active_relayed_connections:
+                    del self.active_relayed_connections[connection.id]
+                break
+            binary = raw.get("bytes")
+            if binary is not None:
+                # One connection per access-client websocket, so the raw bytes
+                # are this connection's payload (no connection_id needed).
+                await connection.send(binary)
+                continue
+            message = AccessClientToRelayMessage.model_validate_json(raw["text"])
             if isinstance(message.inner, AtRTCPDataMessage):
                 logger.debug(
                     "Received TCP data message from access client: %s", message
@@ -628,20 +701,24 @@ class NetworkRelay:
         self,
         access_client_connection: WebSocket,
         relayed_connection: TcpConnectionAsync,
+        access_client_supports_binary: bool = False,
     ):
         while relayed_connection.id in self.active_relayed_connections:
             try:
-                data = await relayed_connection.read(1024)
+                data = await relayed_connection.read(READ_CHUNK_SIZE)
                 if not data:
                     break
-                await access_client_connection.send_text(
-                    RelayToAccessClientMessage(
-                        inner=RtATCPDataMessage(
-                            connection_id=relayed_connection.id,
-                            data_base64=base64.b64encode(data).decode("utf-8"),
-                        )
-                    ).model_dump_json()
-                )
+                if access_client_supports_binary:
+                    await access_client_connection.send_bytes(data)
+                else:
+                    await access_client_connection.send_text(
+                        RelayToAccessClientMessage(
+                            inner=RtATCPDataMessage(
+                                connection_id=relayed_connection.id,
+                                data_base64=base64.b64encode(data).decode("utf-8"),
+                            )
+                        ).model_dump_json()
+                    )
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -676,6 +753,7 @@ class NetworkRelay:
         )
         if edge_agent_connection_id in self.registered_agent_connections:
             del self.registered_agent_connections[edge_agent_connection_id]
+        self.agent_connection_id_to_supports_binary.pop(edge_agent_connection_id, None)
         if agent_connection:
             # remove from agent_connections list
             try:
