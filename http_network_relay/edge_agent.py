@@ -88,7 +88,10 @@ class EdgeAgent:
             last_connection_attempt_time = time.time()
 
     async def connect_to_server(self, last_error):
-        async with connect(self.relay_url, max_size=2**32) as websocket:
+        # disable compression, the data is usually already compressed
+        async with connect(
+            self.relay_url, max_size=2**32, compression=None
+        ) as websocket:
             inner_start = EtRStartMessage.model_validate(
                 (await self.create_start_message(last_error)).model_dump(),
                 from_attributes=True,
