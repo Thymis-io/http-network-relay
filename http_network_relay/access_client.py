@@ -83,7 +83,8 @@ class AccessClient:
             raise ValueError("relay_url is required")
         if self.secret is None:
             raise ValueError("secret is required")
-        async with connect(self.relay_url) as websocket:
+        # disable compression, the data is usually already compressed
+        async with connect(self.relay_url, compression=None) as websocket:
             start_message = AccessClientToRelayMessage(
                 inner=AtRStartMessage(
                     connection_target=self.target_host_identifier,
