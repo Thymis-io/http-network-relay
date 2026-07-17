@@ -1,4 +1,3 @@
-import uuid
 from typing import Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -15,12 +14,18 @@ def encode_tcp_binary_frame(connection_id: str, payload: bytes) -> bytes:
     The connection UUID prefix is required because many connections are
     multiplexed over the agent's single WebSocket.
     """
-    return uuid.UUID(connection_id).bytes + payload
+    return bytes.fromhex(connection_id.replace("-", "")) + payload
 
 
 def decode_tcp_binary_frame(frame: bytes) -> tuple[str, bytes]:
     """Inverse of encode_tcp_binary_frame: returns (connection_id, payload)."""
-    return str(uuid.UUID(bytes=bytes(frame[:16]))), bytes(frame[16:])
+    if len(frame) < 16:
+        raise ValueError(
+            f"frame too short to contain a connection id: {len(frame)} bytes"
+        )
+    h = bytes(frame[:16]).hex()
+    connection_id = f"{h[0:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:32]}"
+    return connection_id, bytes(frame[16:])
 
 
 class EdgeAgentToRelayMessage(BaseModel):
