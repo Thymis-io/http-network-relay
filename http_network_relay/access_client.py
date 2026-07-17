@@ -84,7 +84,9 @@ class AccessClient:
         if self.secret is None:
             raise ValueError("secret is required")
         # disable compression, the data is usually already compressed
-        async with connect(self.relay_url, compression=None) as websocket:
+        async with connect(
+            self.relay_url, max_size=2**32, compression=None
+        ) as websocket:
             start_message = AccessClientToRelayMessage(
                 inner=AtRStartMessage(
                     connection_target=self.target_host_identifier,
@@ -116,7 +118,7 @@ class AccessClient:
             # start async coroutine to read stdin and send it to the server
             async def read_stdin_and_send():
                 loop = asyncio.get_event_loop()
-                reader = asyncio.StreamReader()
+                reader = asyncio.StreamReader(limit=READ_CHUNK_SIZE)
                 reader_protocol = asyncio.StreamReaderProtocol(reader)
                 await loop.connect_read_pipe(lambda: reader_protocol, sys.stdin)
                 while True:
