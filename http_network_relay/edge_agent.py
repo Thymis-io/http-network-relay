@@ -242,7 +242,7 @@ class EdgeAgent:
             eprint(f"Unsupported protocol: {message.protocol}")
             raise NotImplementedError(f"Unsupported protocol: {message.protocol}")
         reader, writer = await asyncio.open_connection(
-            message.target_ip, message.target_port
+            message.target_ip, message.target_port, limit=READ_CHUNK_SIZE
         )
         self.active_connections[message.connection_id] = (reader, writer)
         eprint(f"Connected to {message.target_ip}:{message.target_port}")

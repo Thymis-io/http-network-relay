@@ -5,7 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field
 # Maximum bytes read from a socket/stdin per relayed message. Larger chunks mean
 # fewer WebSocket frames and less per-message JSON/base64 overhead for bulk
 # transfers (e.g. nix store closures during deploy).
-READ_CHUNK_SIZE = 65536
+READ_CHUNK_SIZE = 1024 * 1024
 
 
 def encode_tcp_binary_frame(connection_id: str, payload: bytes) -> bytes:
