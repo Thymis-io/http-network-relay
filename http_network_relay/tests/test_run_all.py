@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import random
@@ -6,8 +7,19 @@ import subprocess
 import tempfile
 import threading
 import time
+import uuid as _uuid
 
 import pytest
+
+from http_network_relay.access_client import AtRStartMessage, RtAStartOKMessage
+from http_network_relay.network_relay import NetworkRelay
+from http_network_relay.pydantic_models import (
+    EtRStartMessage,
+    RtEInitiateConnectionMessage,
+    RtETCPDataMessage,
+    decode_tcp_binary_frame,
+    encode_tcp_binary_frame,
+)
 
 
 @pytest.mark.timeout(3)
@@ -145,16 +157,6 @@ def test_can_run_and_proxy_tcp():
 
 
 def test_binary_frame_roundtrip():
-    import uuid as _uuid
-
-    from http_network_relay.access_client import AtRStartMessage, RtAStartOKMessage
-    from http_network_relay.pydantic_models import (
-        EtRStartMessage,
-        RtEInitiateConnectionMessage,
-        decode_tcp_binary_frame,
-        encode_tcp_binary_frame,
-    )
-
     cid = str(_uuid.uuid4())
     payload = random.randbytes(1000)
     frame = encode_tcp_binary_frame(cid, payload)
@@ -316,3 +318,54 @@ def test_large_binary_payload_roundtrip():
     assert result["err"] is None, result["err"]
     assert len(received) == len(payload), f"got {len(received)} of {len(payload)} bytes"
     assert bytes(received) == payload
+
+
+@pytest.mark.timeout(5)
+def test_concurrent_agent_sends_are_serialized():
+    # Multiple relayed connections + keep_alive share one agent WebSocket.
+    # uvicorn's legacy websocket protocol asserts only one send/drain is ever
+    # in flight; an unsynchronized second writer crashes the connection.
+    # NetworkRelay must serialize writes per agent connection with a lock.
+
+    class FakeAgentWebSocket:
+        def __init__(self):
+            self.busy = False
+            self.max_concurrent = 0
+            self.concurrent = 0
+
+        async def send_text(self, data):
+            await self._send()
+
+        async def send_bytes(self, data):
+            await self._send()
+
+        async def _send(self):
+            self.concurrent += 1
+            self.max_concurrent = max(self.max_concurrent, self.concurrent)
+            assert not self.busy, "concurrent send on one agent connection"
+            self.busy = True
+            await asyncio.sleep(0.05)  # simulate a slow drain() on a big frame
+            self.busy = False
+            self.concurrent -= 1
+
+    async def run():
+        relay = NetworkRelay()
+        ws = FakeAgentWebSocket()
+        await asyncio.gather(
+            relay.send_connection_binary(
+                ws, str(random.randbytes(16).hex()), b"x" * 100
+            ),
+            relay.send_connection_message(
+                ws, RtETCPDataMessage(connection_id="c1", data_base64="")
+            ),
+            relay.send_connection_binary(
+                ws, str(random.randbytes(16).hex()), b"y" * 100
+            ),
+            relay.send_connection_message(
+                ws, RtETCPDataMessage(connection_id="c2", data_base64="")
+            ),
+        )
+        return ws.max_concurrent
+
+    max_concurrent = asyncio.run(run())
+    assert max_concurrent == 1
