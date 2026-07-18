@@ -234,7 +234,15 @@ class NetworkRelay:
         ] = {}  # connection_id -> WebSocket for access clients
         # agent_connection_id -> whether that agent negotiated binary framing
         self.agent_connection_id_to_supports_binary: dict[str, bool] = {}
+        self.agent_connection_locks: dict[WebSocket, asyncio.Lock] = {}
         self.loop: Optional[asyncio.AbstractEventLoop] = None
+
+    def _agent_send_lock(self, agent_connection: WebSocket) -> asyncio.Lock:
+        lock = self.agent_connection_locks.get(agent_connection)
+        if lock is None:
+            lock = asyncio.Lock()
+            self.agent_connection_locks[agent_connection] = lock
+        return lock
 
     async def accept_ws_and_start_msg_loop_for_edge_agents(
         self, edge_agent_connection: WebSocket
@@ -292,11 +300,12 @@ class NetworkRelay:
                 if edge_agent_connection.application_state != WebSocketState.CONNECTED:
                     break
                 try:
-                    await edge_agent_connection.send_text(
-                        RelayToEdgeAgentMessage(
-                            inner=RtEKeepAliveMessage()
-                        ).model_dump_json()
-                    )
+                    async with self._agent_send_lock(edge_agent_connection):
+                        await edge_agent_connection.send_text(
+                            RelayToEdgeAgentMessage(
+                                inner=RtEKeepAliveMessage()
+                            ).model_dump_json()
+                        )
                 except RuntimeError as e:
                     # if the connection is closed, it's fine
                     if not self.is_closed_error(e):
@@ -509,9 +518,10 @@ class NetworkRelay:
     ):
         response_queue = asyncio.Queue(maxsize=1)
         self.initiate_connection_answer_queues[message.connection_id] = response_queue
-        await agent_connection.send_text(
-            RelayToEdgeAgentMessage(inner=message).model_dump_json()
-        )
+        async with self._agent_send_lock(agent_connection):
+            await agent_connection.send_text(
+                RelayToEdgeAgentMessage(inner=message).model_dump_json()
+            )
         logger.debug(
             "Waiting for response for connection_id: %s",
             message.connection_id,
@@ -524,16 +534,18 @@ class NetworkRelay:
     async def send_connection_message(
         self, agent_connection: WebSocket, message: RtETCPDataMessage
     ):
-        await agent_connection.send_text(
-            RelayToEdgeAgentMessage(inner=message).model_dump_json()
-        )
+        async with self._agent_send_lock(agent_connection):
+            await agent_connection.send_text(
+                RelayToEdgeAgentMessage(inner=message).model_dump_json()
+            )
 
     async def send_connection_binary(
         self, agent_connection: WebSocket, connection_id: str, payload: bytes
     ):
-        await agent_connection.send_bytes(
-            encode_tcp_binary_frame(connection_id, payload)
-        )
+        async with self._agent_send_lock(agent_connection):
+            await agent_connection.send_bytes(
+                encode_tcp_binary_frame(connection_id, payload)
+            )
 
     def is_closed_error(self, error: RuntimeError):
         str_e = error.args[0]
@@ -547,14 +559,15 @@ class NetworkRelay:
     ):
         # inform agent
         try:
-            await agent_connection.send_text(
-                RelayToEdgeAgentMessage(
-                    inner=RtEConnectionCloseMessage(
-                        message="Connection closed by relay",
-                        connection_id=connection_id,
-                    )
-                ).model_dump_json()
-            )
+            async with self._agent_send_lock(agent_connection):
+                await agent_connection.send_text(
+                    RelayToEdgeAgentMessage(
+                        inner=RtEConnectionCloseMessage(
+                            message="Connection closed by relay",
+                            connection_id=connection_id,
+                        )
+                    ).model_dump_json()
+                )
 
         except RuntimeError as e:
             # if the connection is closed, it's fine
@@ -765,3 +778,4 @@ class NetworkRelay:
             for connection_id, connection in active_relayed_connections.items():
                 if connection.agent_connection == agent_connection:
                     await self.close_relayed_connection(connection_id, agent_connection)
+            self.agent_connection_locks.pop(agent_connection, None)
