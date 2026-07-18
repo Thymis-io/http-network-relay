@@ -646,7 +646,8 @@ class NetworkRelay:
             await access_client_connection.send_text(
                 RelayToAccessClientMessage(
                     inner=RtAStartOKMessage(
-                        connection_id=connection.id, supports_binary=True
+                        connection_id=connection.id,
+                        supports_binary=connection.agent_supports_binary,
                     )
                 ).model_dump_json()
             )

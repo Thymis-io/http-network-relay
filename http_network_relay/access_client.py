@@ -103,16 +103,17 @@ class AccessClient:
             start_response = RelayToAccessClientMessage.model_validate_json(
                 start_response_json
             )
-            eprint(f"Received start response: {start_response}")
             relay_supports_binary = False
             if isinstance(start_response.inner, RtAStartOKMessage):
                 relay_supports_binary = getattr(
                     start_response.inner, "supports_binary", False
                 )
                 eprint(f"Received OK message: {start_response}")
-                eprint(f"Relay supports binary: {relay_supports_binary}")
             elif isinstance(start_response.inner, RtAErrorMessage):
                 eprint(f"Received error message: {start_response}")
+                return
+            else:
+                eprint(f"Received unknown message: {start_response}")
                 return
 
             # start async coroutine to read stdin and send it to the server
