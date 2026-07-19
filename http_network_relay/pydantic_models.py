@@ -19,7 +19,7 @@ def encode_tcp_binary_frame(connection_id: str, payload: bytes) -> bytes:
     return bytes.fromhex(connection_id.replace("-", "")) + payload
 
 
-def decode_tcp_binary_frame(frame: bytes) -> tuple[str, bytes]:
+def decode_tcp_binary_frame(frame: bytes) -> tuple[str, memoryview]:
     """Inverse of encode_tcp_binary_frame: returns (connection_id, payload)."""
     if len(frame) < 16:
         raise ValueError(
@@ -27,7 +27,7 @@ def decode_tcp_binary_frame(frame: bytes) -> tuple[str, bytes]:
         )
     h = bytes(frame[:16]).hex()
     connection_id = f"{h[0:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:32]}"
-    return connection_id, bytes(frame[16:])
+    return connection_id, memoryview(frame)[16:]
 
 
 class EdgeAgentToRelayMessage(BaseModel):

@@ -492,7 +492,9 @@ class NetworkRelay:
         connection = self.active_relayed_connections[message.connection_id]
         connection.fill_recv(base64.b64decode(message.data_base64))
 
-    async def handle_tcp_binary_data(self, connection_id: str, payload: bytes):
+    async def handle_tcp_binary_data(
+        self, connection_id: str, payload: bytes | memoryview
+    ):
         connection = self.active_relayed_connections.get(connection_id)
         if connection is None:
             logger.warning(
