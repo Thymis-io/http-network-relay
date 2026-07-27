@@ -48,6 +48,7 @@ class EtRStartMessage(BaseModel):
     kind: Literal["start"] = "start"
     last_error: Optional[str] = None
     supports_binary: bool = False
+    supports_half_close: bool = False
 
 
 class EtRInitiateConnectionErrorMessage(BaseModel):
@@ -81,6 +82,7 @@ RelayToEdgeAgentMessage_Inner = Union[
     "RtEInitiateConnectionMessage",
     "RtETCPDataMessage",
     "RtEConnectionCloseMessage",
+    "RtEConnectionHalfCloseMessage",
     "RtEKeepAliveMessage",
 ]
 
@@ -96,6 +98,7 @@ class RtEInitiateConnectionMessage(BaseModel):
     protocol: str
     connection_id: str
     supports_binary: bool = False
+    supports_half_close: bool = False
 
 
 class RtETCPDataMessage(BaseModel):
@@ -107,6 +110,11 @@ class RtETCPDataMessage(BaseModel):
 class RtEConnectionCloseMessage(BaseModel):
     kind: Literal["connection_close"] = "connection_close"
     message: str
+    connection_id: str
+
+
+class RtEConnectionHalfCloseMessage(BaseModel):
+    kind: Literal["connection_half_close"] = "connection_half_close"
     connection_id: str
 
 
