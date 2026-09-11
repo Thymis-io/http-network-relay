@@ -12,7 +12,11 @@ from .pydantic_models import READ_CHUNK_SIZE
 
 
 class AccessClientToRelayMessage(BaseModel):
-    inner: Union["AtRStartMessage", "AtRTCPDataMessage"] = Field(discriminator="kind")
+    inner: Union[
+        "AtRStartMessage",
+        "AtRTCPDataMessage",
+        "AtRConnectionHalfCloseMessage",
+    ] = Field(discriminator="kind")
 
 
 class AtRStartMessage(BaseModel):
@@ -23,11 +27,16 @@ class AtRStartMessage(BaseModel):
     protocol: str
     secret: str
     supports_binary: bool | None = False
+    supports_half_close: bool | None = False
 
 
 class AtRTCPDataMessage(BaseModel):
     kind: Literal["tcp_data"] = "tcp_data"
     data_base64: str
+
+
+class AtRConnectionHalfCloseMessage(BaseModel):
+    kind: Literal["connection_half_close"] = "connection_half_close"
 
 
 class RelayToAccessClientMessage(BaseModel):
@@ -44,6 +53,7 @@ class RtAErrorMessage(BaseModel):
 class RtAStartOKMessage(BaseModel):
     kind: Literal["start_ok"] = "start_ok"
     supports_binary: bool | None = False
+    supports_half_close: bool | None = False
 
 
 class RtATCPDataMessage(BaseModel):
@@ -95,6 +105,7 @@ class AccessClient:
                     protocol=self.protocol,
                     secret=self.secret,
                     supports_binary=True,
+                    supports_half_close=True,
                 )
             )
             await websocket.send(start_message.model_dump_json())
@@ -104,9 +115,13 @@ class AccessClient:
                 start_response_json
             )
             relay_supports_binary = False
+            relay_supports_half_close = False
             if isinstance(start_response.inner, RtAStartOKMessage):
                 relay_supports_binary = getattr(
                     start_response.inner, "supports_binary", False
+                )
+                relay_supports_half_close = getattr(
+                    start_response.inner, "supports_half_close", False
                 )
                 eprint(f"Received OK message: {start_response}")
             elif isinstance(start_response.inner, RtAErrorMessage):
@@ -125,6 +140,12 @@ class AccessClient:
                 while True:
                     data = await reader.read(READ_CHUNK_SIZE)
                     if not data:
+                        if relay_supports_half_close:
+                            await websocket.send(
+                                AccessClientToRelayMessage(
+                                    inner=AtRConnectionHalfCloseMessage()
+                                ).model_dump_json()
+                            )
                         break
                     if relay_supports_binary:
                         await websocket.send(data)

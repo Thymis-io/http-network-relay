@@ -20,6 +20,7 @@ from .pydantic_models import (
     EtRTCPDataMessage,
     RelayToEdgeAgentMessage,
     RtEConnectionCloseMessage,
+    RtEConnectionHalfCloseMessage,
     RtEInitiateConnectionMessage,
     RtEKeepAliveMessage,
     RtETCPDataMessage,
@@ -97,6 +98,7 @@ class EdgeAgent:
                 from_attributes=True,
             )
             inner_start.supports_binary = True
+            inner_start.supports_half_close = True
             start_message = EdgeAgentToRelayMessage(inner=inner_start)
             await websocket.send(start_message.model_dump_json())
             eprint(f"Sent start message: {start_message}")
@@ -172,6 +174,23 @@ class EdgeAgent:
                         base64.b64decode(message.data_base64),
                         websocket,
                     )
+                elif isinstance(message, RtEConnectionHalfCloseMessage):
+                    if message.connection_id not in self.active_connections:
+                        eprint(f"Unknown connection_id: {message.connection_id}")
+                        continue
+                    _, writer = self.active_connections[message.connection_id]
+                    try:
+                        if writer.can_write_eof():
+                            writer.write_eof()
+                            await writer.drain()
+                        else:
+                            eprint(
+                                "Target transport does not support half-close; "
+                                f"closing {message.connection_id}"
+                            )
+                            writer.close()
+                    except (ConnectionError, NotImplementedError):
+                        writer.close()
                 elif isinstance(message, RtEConnectionCloseMessage):
                     connection_close_message = message
                     eprint(
