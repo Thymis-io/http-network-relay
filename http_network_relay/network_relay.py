@@ -13,6 +13,7 @@ from pydantic import BaseModel, ValidationError
 
 from .access_client import (
     AccessClientToRelayMessage,
+    AtRConnectionHalfCloseMessage,
     AtRStartMessage,
     AtRTCPDataMessage,
     RelayToAccessClientMessage,
@@ -32,6 +33,7 @@ from .pydantic_models import (
     RelayToEdgeAgentMessage,
     RelayToEdgeAgentMessage_Inner,
     RtEConnectionCloseMessage,
+    RtEConnectionHalfCloseMessage,
     RtEInitiateConnectionMessage,
     RtEKeepAliveMessage,
     RtETCPDataMessage,
@@ -51,6 +53,7 @@ class TcpConnection(AbstractContextManager):
         agent_connection: WebSocket,
         loop,
         agent_supports_binary: bool = False,
+        agent_supports_half_close: bool = False,
     ):
         self.id = connection_id
         self.relay = relay
@@ -63,6 +66,7 @@ class TcpConnection(AbstractContextManager):
         self.send_buffer_lock = threading.Lock()
         self.loop = loop
         self.agent_supports_binary = agent_supports_binary
+        self.agent_supports_half_close = agent_supports_half_close
 
     def send(self, content):
         with self.send_buffer_lock:
@@ -120,6 +124,12 @@ class TcpConnection(AbstractContextManager):
             self.loop,
         )
 
+    def half_close(self):
+        return asyncio.run_coroutine_threadsafe(
+            self.relay.send_connection_half_close(self.id, self.agent_connection),
+            self.loop,
+        )
+
     @property
     def closed(self):
         return self.id not in self.relay.active_relayed_connections
@@ -149,6 +159,7 @@ class TcpConnectionAsync(AbstractAsyncContextManager):
         agent_connection: WebSocket,
         loop,
         agent_supports_binary: bool = False,
+        agent_supports_half_close: bool = False,
     ):
         self.id = connection_id
         self.relay = relay
@@ -158,6 +169,7 @@ class TcpConnectionAsync(AbstractAsyncContextManager):
         self.event = asyncio.Event()
         self.loop = loop
         self.agent_supports_binary = agent_supports_binary
+        self.agent_supports_half_close = agent_supports_half_close
 
     async def send(self, content):
         if self.agent_supports_binary:
@@ -169,6 +181,11 @@ class TcpConnectionAsync(AbstractAsyncContextManager):
             RtETCPDataMessage(
                 connection_id=self.id, data_base64=base64.b64encode(content).decode()
             ),
+        )
+
+    async def half_close(self):
+        return await self.relay.send_connection_half_close(
+            self.id, self.agent_connection
         )
 
     def fill_recv(self, data: bytes):
@@ -234,6 +251,8 @@ class NetworkRelay:
         ] = {}  # connection_id -> WebSocket for access clients
         # agent_connection_id -> whether that agent negotiated binary framing
         self.agent_connection_id_to_supports_binary: dict[str, bool] = {}
+        # agent_connection_id -> whether that agent negotiated TCP half-close
+        self.agent_connection_id_to_supports_half_close: dict[str, bool] = {}
         self.agent_connection_locks: dict[WebSocket, asyncio.Lock] = {}
         self.loop: Optional[asyncio.AbstractEventLoop] = None
 
@@ -255,6 +274,7 @@ class NetworkRelay:
             start_message_json_data
         ).inner
         agent_supports_binary = getattr(start_message, "supports_binary", False)
+        agent_supports_half_close = getattr(start_message, "supports_half_close", False)
         logger.info("Message received from agent: %s", start_message)
         if not isinstance(start_message, EtRStartMessage):
             logger.warning("Unknown message received from agent: %s", start_message)
@@ -276,9 +296,12 @@ class NetworkRelay:
             await edge_agent_connection.close()
             return
         connection_id = connection_id_or_falsy
-        self.agent_connection_id_to_supports_binary[
-            connection_id
-        ] = agent_supports_binary
+        self.agent_connection_id_to_supports_binary[connection_id] = (
+            agent_supports_binary
+        )
+        self.agent_connection_id_to_supports_half_close[connection_id] = (
+            agent_supports_half_close
+        )
 
         # check if the agent is already registered
         if connection_id in self.registered_agent_connections:
@@ -363,9 +386,7 @@ class NetworkRelay:
             except ValidationError as e:
                 if self.CustomAgentToRelayMessage is None:
                     raise e
-                message = self.CustomAgentToRelayMessage.model_validate_json(
-                    json_data
-                )  # pylint: disable=E1101
+                message = self.CustomAgentToRelayMessage.model_validate_json(json_data)  # pylint: disable=E1101
             logger.debug("Message received from agent: %s", message)
 
             try:
@@ -437,12 +458,16 @@ class NetworkRelay:
         agent_supports_binary = self.agent_connection_id_to_supports_binary.get(
             agent_connection_id, False
         )
+        agent_supports_half_close = self.agent_connection_id_to_supports_half_close.get(
+            agent_connection_id, False
+        )
         connection = connection_class(
             connection_id,
             self,
             agent_connection,
             asyncio.get_event_loop(),
             agent_supports_binary=agent_supports_binary,
+            agent_supports_half_close=agent_supports_half_close,
         )
         self.active_relayed_connections[connection_id] = connection
         # step 1. send initiate connection message to agent
@@ -454,6 +479,7 @@ class NetworkRelay:
                 protocol=protocol,
                 connection_id=str(connection_id),
                 supports_binary=True,
+                supports_half_close=agent_supports_half_close,
             ),
         )
         match response:
@@ -547,6 +573,16 @@ class NetworkRelay:
                 encode_tcp_binary_frame(connection_id, payload)
             )
 
+    async def send_connection_half_close(
+        self, connection_id: str, agent_connection: WebSocket
+    ):
+        async with self._agent_send_lock(agent_connection):
+            await agent_connection.send_text(
+                RelayToEdgeAgentMessage(
+                    inner=RtEConnectionHalfCloseMessage(connection_id=connection_id)
+                ).model_dump_json()
+            )
+
     def is_closed_error(self, error: RuntimeError):
         str_e = error.args[0]
         return (
@@ -610,25 +646,26 @@ class NetworkRelay:
             return
         start_message = message.inner
         access_client_supports_binary = getattr(start_message, "supports_binary", False)
+        access_client_supports_half_close = getattr(
+            start_message, "supports_half_close", False
+        )
         # check if credentials are correct
         if not await self.get_access_client_permission(
             start_message, access_client_connection
         ):
             logger.warning("Access client not allowed: %s", start_message)
-
             await access_client_connection.close()
             return
         # check if the client is registered
         agent_connection_id = await self.get_agent_connection_id_for_access_client(
             start_message.connection_target
         )
-        if not agent_connection_id in self.registered_agent_connections:
+        if agent_connection_id not in self.registered_agent_connections:
             logger.warning(
                 "Agent not registered: %s (%s)",
                 agent_connection_id,
                 start_message.connection_target,
             )
-            # send a message back and kill the connection
             await access_client_connection.send_text(
                 RelayToAccessClientMessage(
                     inner=RtAErrorMessage(message="Agent not registered")
@@ -636,6 +673,7 @@ class NetworkRelay:
             )
             await access_client_connection.close()
             return
+        connection = None
         try:
             connection = await self.create_connection_async(
                 agent_connection_id=agent_connection_id,
@@ -648,6 +686,10 @@ class NetworkRelay:
                     inner=RtAStartOKMessage(
                         connection_id=connection.id,
                         supports_binary=connection.agent_supports_binary,
+                        supports_half_close=(
+                            access_client_supports_half_close
+                            and connection.agent_supports_half_close
+                        ),
                     )
                 ).model_dump_json()
             )
@@ -658,7 +700,8 @@ class NetworkRelay:
                     inner=RtAErrorMessage(message=str(e))
                 ).model_dump_json()
             )
-            await connection.close()
+            if connection is not None:
+                await connection.close()
             try:
                 await access_client_connection.close()
             except RuntimeError as re:
@@ -670,7 +713,9 @@ class NetworkRelay:
         self.active_access_client_connections[connection.id] = access_client_connection
         reader = asyncio.create_task(
             self.access_client_receive_thread(
-                access_client_connection, connection, access_client_supports_binary
+                access_client_connection,
+                connection,
+                access_client_supports_binary,
             )
         )
         while connection.id in self.active_access_client_connections:
@@ -698,6 +743,9 @@ class NetworkRelay:
                     "Received TCP data message from access client: %s", message
                 )
                 await connection.send(base64.b64decode(message.inner.data_base64))
+            elif isinstance(message.inner, AtRConnectionHalfCloseMessage):
+                if access_client_supports_half_close:
+                    await connection.half_close()
             else:
                 logger.warning(
                     "Unknown message received from access client: %s", message
@@ -773,10 +821,13 @@ class NetworkRelay:
             try:
                 self.agent_connections.remove(agent_connection)
             except ValueError:
-                pass  # already removed or never added (e.g. rejected before append)
+                pass  # already removed or never removed (e.g. rejected before append)
             # remove all running connections
             active_relayed_connections = self.active_relayed_connections.copy()
             for connection_id, connection in active_relayed_connections.items():
                 if connection.agent_connection == agent_connection:
                     await self.close_relayed_connection(connection_id, agent_connection)
             self.agent_connection_locks.pop(agent_connection, None)
+        self.agent_connection_id_to_supports_half_close.pop(
+            edge_agent_connection_id, None
+        )
