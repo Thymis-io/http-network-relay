@@ -11,10 +11,16 @@ import uuid as _uuid
 
 import pytest
 
-from http_network_relay.access_client import AtRStartMessage, RtAStartOKMessage
-from http_network_relay.network_relay import NetworkRelay
+from http_network_relay.access_client import (
+    AccessClientToRelayMessage,
+    AtRStartMessage,
+    RtAStartOKMessage,
+)
+from http_network_relay.network_relay import NetworkRelay, TcpConnectionAsync
 from http_network_relay.pydantic_models import (
+    EtRInitiateConnectionOKMessage,
     EtRStartMessage,
+    RelayToEdgeAgentMessage,
     RtEInitiateConnectionMessage,
     RtETCPDataMessage,
     decode_tcp_binary_frame,
@@ -369,3 +375,107 @@ def test_concurrent_agent_sends_are_serialized():
 
     max_concurrent = asyncio.run(run())
     assert max_concurrent == 1
+
+
+@pytest.mark.timeout(10)
+def test_closing_relayed_connection_wakes_blocked_reader():
+    # A parked reader only wakes on incoming data; teardown must unblock it,
+    # else whoever awaits the reader hangs forever.
+
+    async def run():
+        relay = NetworkRelay()
+        connection = TcpConnectionAsync("c1", relay, None, asyncio.get_event_loop())
+        relay.active_relayed_connections["c1"] = connection
+        reader = asyncio.create_task(connection.read(1024))
+        await asyncio.sleep(0.05)
+        assert not reader.done(), "reader should be parked waiting for data"
+        relay._drop_relayed_connection("c1")
+        assert await asyncio.wait_for(reader, timeout=2) == b""
+
+    asyncio.run(run())
+
+
+@pytest.mark.timeout(10)
+def test_access_client_handler_returns_after_disconnect():
+    # Regression: the handler awaited a reader parked on a connection that was
+    # already dropped, keeping the ASGI request task alive through shutdown.
+
+    class FakeAgentWebSocket:
+        def __init__(self, relay):
+            self.relay = relay
+
+        async def send_text(self, data):
+            message = RelayToEdgeAgentMessage.model_validate_json(data).inner
+            if isinstance(message, RtEInitiateConnectionMessage):
+                await self.relay.initiate_connection_answer_queues[
+                    message.connection_id
+                ].put(
+                    EtRInitiateConnectionOKMessage(connection_id=message.connection_id)
+                )
+
+        async def send_bytes(self, data):
+            pass
+
+        async def close(self):
+            pass
+
+    class FakeAccessClientWebSocket:
+        def __init__(self, start_message):
+            self.start_message = start_message
+            self.sent = []
+            self.disconnected = asyncio.Event()
+
+        async def accept(self):
+            pass
+
+        async def receive_text(self):
+            return AccessClientToRelayMessage(
+                inner=self.start_message
+            ).model_dump_json()
+
+        async def receive(self):
+            await self.disconnected.wait()
+            return {"type": "websocket.disconnect", "code": 1012}
+
+        async def send_text(self, data):
+            self.sent.append(data)
+
+        async def send_bytes(self, data):
+            self.sent.append(data)
+
+        async def close(self):
+            self.disconnected.set()
+
+    class PermissiveRelay(NetworkRelay):
+        async def get_access_client_permission(
+            self, start_message, access_client_connection
+        ):
+            return True
+
+    async def run():
+        relay = PermissiveRelay()
+        relay.registered_agent_connections["agent"] = FakeAgentWebSocket(relay)
+        client_ws = FakeAccessClientWebSocket(
+            AtRStartMessage(
+                connection_target="agent",
+                target_ip="127.0.0.1",
+                target_port=22,
+                protocol="tcp",
+                secret="secret",
+            )
+        )
+        handler = asyncio.create_task(relay.ws_for_access_clients(client_ws))
+        for _ in range(200):
+            if relay.active_access_client_connections:
+                break
+            await asyncio.sleep(0.01)
+        assert relay.active_access_client_connections, "connection never established"
+        await asyncio.sleep(0.05)  # let the reader park in read()
+        client_ws.disconnected.set()
+        done, _ = await asyncio.wait({handler}, timeout=2)
+        assert handler in done, "handler still running after access client left"
+        await handler
+        assert not relay.active_relayed_connections
+        assert not relay.active_access_client_connections
+
+    asyncio.run(run())
