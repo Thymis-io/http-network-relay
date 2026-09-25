@@ -41,6 +41,9 @@ from .pydantic_models import (
 
 logger = logging.getLogger(__name__)
 
+# Seconds to wait for an access-client reader to notice teardown before cancel.
+READER_JOIN_TIMEOUT = 5
+
 
 class TcpConnection(AbstractContextManager):
     # compare https://docs.paramiko.org/en/2.4/api/proxy.html#paramiko.proxy.ProxyCommand
@@ -110,9 +113,16 @@ class TcpConnection(AbstractContextManager):
         if size == 0:
             return b""  # this is how socket.recv(0) behaves i guess
         with self.recv_buffer_lock:
+            if len(self.recv_buffer) == 0:
+                # woken by close, not by data
+                raise EOFError()
             result = self.recv_buffer[:size]
             self.recv_buffer = self.recv_buffer[size:]
         return result
+
+    def wake_readers(self):
+        """Unblock recv() after the connection was dropped from the relay."""
+        self.recv_event.set()
 
     def close(self):
         return asyncio.run_coroutine_threadsafe(
@@ -193,6 +203,10 @@ class TcpConnectionAsync(AbstractAsyncContextManager):
         result = self.recv_buffer[:n]
         self.recv_buffer = self.recv_buffer[n:]
         return result
+
+    def wake_readers(self):
+        """Unblock read() after the connection was dropped from the relay."""
+        self.event.set()
 
     async def close(self):
         return await self.relay.close_relayed_connection(self.id, self.agent_connection)
@@ -586,9 +600,17 @@ class NetworkRelay:
             # if the connection is closed, it's fine
             if not self.is_closed_error(e):
                 raise e
-        # remove connection
-        if connection_id in self.active_relayed_connections:
-            del self.active_relayed_connections[connection_id]
+        self._drop_relayed_connection(connection_id)
+
+    def _drop_relayed_connection(self, connection_id: str):
+        """Remove a relayed connection and wake its readers.
+
+        Readers park on an event only set by incoming data, so a teardown
+        during a read would leave the reader (and its awaiter) hanging.
+        """
+        connection = self.active_relayed_connections.pop(connection_id, None)
+        if connection is not None:
+            connection.wake_readers()
 
     async def handle_custom_agent_message(self, message: BaseModel, connection_id: str):
         raise NotImplementedError()
@@ -678,13 +700,11 @@ class NetworkRelay:
                 raw = await access_client_connection.receive()
             except WebSocketDisconnect:
                 logger.info("access client disconnected: %s", connection.id)
-                if connection.id in self.active_relayed_connections:
-                    del self.active_relayed_connections[connection.id]
+                self._drop_relayed_connection(connection.id)
                 break
             if raw["type"] == "websocket.disconnect":
                 logger.info("access client disconnected: %s", connection.id)
-                if connection.id in self.active_relayed_connections:
-                    del self.active_relayed_connections[connection.id]
+                self._drop_relayed_connection(connection.id)
                 break
             binary = raw.get("bytes")
             if binary is not None:
@@ -709,7 +729,25 @@ class NetworkRelay:
         except RuntimeError as e:
             if not self.is_closed_error(e):
                 raise e
-        await reader
+        await self._await_reader(reader)
+
+    async def _await_reader(self, reader: asyncio.Task):
+        """Await the reader, cancelling it if it lingers.
+
+        Everything it could still write to is closed by now, so a reader that
+        is not done within the grace period must not hold the request task.
+        """
+        try:
+            await asyncio.wait_for(asyncio.shield(reader), timeout=READER_JOIN_TIMEOUT)
+        except asyncio.TimeoutError:
+            logger.warning("access client reader did not finish, cancelling it")
+            reader.cancel()
+            try:
+                await reader
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:
+                logger.warning("access client reader failed while cancelling: %s", e)
 
     async def access_client_receive_thread(
         self,
@@ -741,8 +779,7 @@ class NetworkRelay:
 
                 traceback.print_exc()
                 break
-        if relayed_connection.id in self.active_relayed_connections:
-            del self.active_relayed_connections[relayed_connection.id]
+        self._drop_relayed_connection(relayed_connection.id)
 
     async def get_access_client_permission(
         self, start_message: AtRStartMessage, access_client_connection
