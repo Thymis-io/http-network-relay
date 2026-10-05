@@ -145,8 +145,12 @@ def test_can_run_and_proxy_tcp():
     access_client.stdin.flush()
     response = access_client.stdout.readline()
     access_client.stdin.close()
-    access_client.terminate()
-    access_client.kill()
+    try:
+        access_client.wait(timeout=1)
+    except subprocess.TimeoutExpired:
+        access_client.terminate()
+        access_client.wait(timeout=1)
+        access_client.kill()
 
     # kill other threads
     for p in started_subprocesses:
@@ -160,6 +164,7 @@ def test_can_run_and_proxy_tcp():
     access_client.wait()
 
     assert response == b"olleh\n"
+    assert access_client.returncode == 0
 
 
 def test_binary_frame_roundtrip():
