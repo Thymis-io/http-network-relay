@@ -93,8 +93,8 @@ def main():
 
     network_relay = NetworkRelayForAccessClients(CREDENTIALS)
 
-    app.add_websocket_route("/ws_for_edge_agents", network_relay.ws_for_edge_agents)
-    app.add_websocket_route(
+    app.add_api_websocket_route("/ws_for_edge_agents", network_relay.ws_for_edge_agents)
+    app.add_api_websocket_route(
         "/ws_for_access_clients", network_relay.ws_for_access_clients
     )
 
