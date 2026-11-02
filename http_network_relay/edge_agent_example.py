@@ -3,20 +3,10 @@ import asyncio
 import os
 import random
 import socket
-import sys
 from typing import Optional
 
 from .edge_agent import EdgeAgent
 from .pydantic_models import EtRStartMessage
-
-debug = False
-if os.getenv("DEBUG") == "1":
-    debug = True
-
-
-def eprint(*args, only_debug=False, **kwargs):
-    if (debug and only_debug) or (not only_debug):
-        print(*args, file=sys.stderr, **kwargs)
 
 
 class EdgeAgentForAccessClients(EdgeAgent):

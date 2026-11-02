@@ -1,7 +1,5 @@
 import asyncio
 import base64
-import os
-import sys
 import time
 from typing import Optional, Type
 
@@ -9,6 +7,7 @@ import websockets
 from pydantic import BaseModel, ValidationError
 from websockets.asyncio.client import ClientConnection, connect
 
+from .logging_utils import debug, error, info, warning
 from .pydantic_models import (
     READ_CHUNK_SIZE,
     EdgeAgentToRelayMessage,
@@ -27,15 +26,6 @@ from .pydantic_models import (
     encode_tcp_binary_frame,
 )
 
-debug = False
-if os.getenv("DEBUG") == "1":
-    debug = True
-
-
-def eprint(*args, only_debug=False, **kwargs):
-    if (debug and only_debug) or (not only_debug):
-        print(*args, file=sys.stderr, **kwargs)
-
 
 class EdgeAgent:
     CustomRelayToAgentMessage: Type[BaseModel] = None
@@ -53,22 +43,23 @@ class EdgeAgent:
         last_connection_attempt_time = 0
         last_error = None
         while True:
-            eprint("Connecting to server...")
+            info("Connecting to server...")
             # exponential backoff
             try:
                 await self.connect_to_server(last_error)
             except ConnectionRefusedError as e:
-                eprint(f"Connection refused: {e}")
+                warning("Connection refused: %s", e)
                 last_error = str(e)
             except Exception as e:
-                eprint(f"Error: {e}")
+                error("Error: %s", e)
                 last_error = str(e)
             for connection_id, (
                 reader,
                 writer,
             ) in self.active_connections.copy().items():
-                eprint(
-                    f"Closing active connection: {connection_id}, due to disconnect from relay"
+                info(
+                    "Closing active connection: %s, due to disconnect from relay",
+                    connection_id,
                 )
                 writer.close()
                 del self.active_connections[connection_id]
@@ -82,7 +73,7 @@ class EdgeAgent:
                 # then the connection has been stable
                 # and we can reset the connection delay
                 connection_delay = 1
-            eprint(f"Connection closed, reconnecting in {connection_delay} seconds")
+            info("Connection closed, reconnecting in %s seconds", connection_delay)
             time.sleep(connection_delay)
             connection_delay = min(2 * connection_delay, 60)
             last_connection_attempt_time = time.time()
@@ -99,7 +90,7 @@ class EdgeAgent:
             inner_start.supports_binary = True
             start_message = EdgeAgentToRelayMessage(inner=inner_start)
             await websocket.send(start_message.model_dump_json())
-            eprint(f"Sent start message: {start_message}")
+            debug("Sent start message: %s", start_message)
             self.websocket = websocket
             self.signal_connected.set()
 
@@ -116,7 +107,7 @@ class EdgeAgent:
                             ).model_dump_json()
                         )
                     except websockets.exceptions.ConnectionClosed as e:
-                        eprint(f"Connection closed: {e} quitting keep alive")
+                        info("Connection closed: %s quitting keep alive", e)
                         break
 
             asyncio.create_task(keep_alive())
@@ -125,10 +116,10 @@ class EdgeAgent:
                 try:
                     json_data = await websocket.recv()
                 except websockets.exceptions.ConnectionClosedError as e:
-                    eprint(f"Connection closed with error: {e}")
+                    warning("Connection closed with error: %s", e)
                     break
                 except websockets.exceptions.ConnectionClosedOK as e:
-                    eprint(f"Connection closed OK: {e}")
+                    info("Connection closed OK: %s", e)
                     break
                 if isinstance(json_data, (bytes, bytearray)):
                     # Hot path: raw TCP payload framed as connection_id + bytes.
@@ -147,16 +138,16 @@ class EdgeAgent:
                             json_data
                         )  # pylint: disable=E1101
                     except ValidationError as e:
-                        eprint(f"Error while validating message: {e}")
+                        error("Error while validating message: %s", e)
                         continue
 
-                eprint(f"Received message: {message}", only_debug=True)
+                debug("Received message: %s", message)
                 if isinstance(message, RtEInitiateConnectionMessage):
-                    eprint(f"Received initiate connection message: {message}")
+                    info("Received initiate connection message: %s", message)
                     try:
                         await self.initiate_connection(message, websocket)
                     except Exception as e:
-                        eprint(f"Error while initiating connection: {e}")
+                        error("Error while initiating connection: %s", e)
                         # send an error message back
                         await websocket.send(
                             EdgeAgentToRelayMessage(
@@ -174,52 +165,54 @@ class EdgeAgent:
                     )
                 elif isinstance(message, RtEConnectionCloseMessage):
                     connection_close_message = message
-                    eprint(
-                        f"Received connection close message: {connection_close_message}",
-                        only_debug=True,
+                    debug(
+                        "Received connection close message: %s",
+                        connection_close_message,
                     )
                     if (
                         connection_close_message.connection_id
                         not in self.active_connections
                     ):
-                        eprint(
-                            f"Unknown connection_id: {connection_close_message.connection_id}"
+                        warning(
+                            "Unknown connection_id: %s",
+                            connection_close_message.connection_id,
                         )
                         continue
                     reader, writer = self.active_connections[
                         connection_close_message.connection_id
                     ]
-                    eprint(
-                        f"Closing active connection: {connection_close_message.connection_id}, due to connection close message from relay"
+                    info(
+                        "Closing active connection: %s, due to connection close message from relay",
+                        connection_close_message.connection_id,
                     )
                     writer.close()
                     del self.active_connections[connection_close_message.connection_id]
                 elif isinstance(message, RtEKeepAliveMessage):
-                    eprint("Received keep alive message", only_debug=True)
+                    debug("Received keep alive message")
                 elif self.CustomRelayToAgentMessage is not None and isinstance(
                     message, self.CustomRelayToAgentMessage
                 ):
                     try:
                         await self.handle_custom_relay_message(message)
                     except NotImplementedError:
-                        eprint("Custom relay message not implemented")
+                        warning("Custom relay message not implemented")
                     except Exception as e:
-                        eprint(f"Error while handling custom relay message: {e}")
+                        error("Error while handling custom relay message: %s", e)
                 else:
-                    eprint(f"Unknown message received: {message}")
+                    warning("Unknown message received: %s", message)
 
     async def write_to_connection(self, connection_id, data, server_websocket):
         if connection_id not in self.active_connections:
-            eprint(f"Unknown connection_id: {connection_id}")
+            warning("Unknown connection_id: %s", connection_id)
             return
         writer = self.active_connections[connection_id][1]
         writer.write(data)
         try:
             await writer.drain()
         except ConnectionResetError:
-            eprint("Connection reset while writing data")
-            eprint(
-                f"Closing active connection: {connection_id}, due to connection reset"
+            warning("Connection reset while writing data")
+            info(
+                "Closing active connection: %s, due to connection reset", connection_id
             )
             writer.close()
             del self.active_connections[connection_id]
@@ -235,17 +228,20 @@ class EdgeAgent:
     async def initiate_connection(
         self, message: RtEInitiateConnectionMessage, server_websocket: ClientConnection
     ):
-        eprint(
-            f"Initiating connection to {message.target_ip}:{message.target_port} using {message.protocol}"
+        info(
+            "Initiating connection to %s:%s using %s",
+            message.target_ip,
+            message.target_port,
+            message.protocol,
         )
         if message.protocol != "tcp":
-            eprint(f"Unsupported protocol: {message.protocol}")
+            error("Unsupported protocol: %s", message.protocol)
             raise NotImplementedError(f"Unsupported protocol: {message.protocol}")
         reader, writer = await asyncio.open_connection(
             message.target_ip, message.target_port, limit=READ_CHUNK_SIZE
         )
         self.active_connections[message.connection_id] = (reader, writer)
-        eprint(f"Connected to {message.target_ip}:{message.target_port}")
+        info("Connected to %s:%s", message.target_ip, message.target_port)
         # send OK message back
         await server_websocket.send(
             EdgeAgentToRelayMessage(

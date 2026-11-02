@@ -2,26 +2,17 @@
 import argparse
 import json
 import os
-import sys
 
 import uvicorn
 from fastapi import FastAPI
 
 from .access_client import AtRStartMessage, RelayToAccessClientMessage, RtAErrorMessage
+from .logging_utils import error
 from .network_relay import NetworkRelay
 from .pydantic_models import EtRStartMessage
 
 CREDENTIALS_FILE = os.getenv("HTTP_NETWORK_RELAY_CREDENTIALS_FILE", "credentials.json")
 CREDENTIALS = None
-
-debug = False
-if os.getenv("DEBUG") == "1":
-    debug = True
-
-
-def eprint(*args, only_debug=False, **kwargs):
-    if (debug and only_debug) or (not only_debug):
-        print(*args, file=sys.stderr, **kwargs)
 
 
 class EdgeAgentToRelayStartMessage(EtRStartMessage):
@@ -40,7 +31,7 @@ class NetworkRelayForAccessClients(NetworkRelay):
         self, start_message: AtRStartMessage, access_client_connection
     ):
         if start_message.secret not in self.credentials["access-client-secrets"]:
-            eprint(f"Invalid access client secret: {start_message.secret}")
+            error("Invalid access client secret: %s", start_message.secret)
             await access_client_connection.send_text(
                 RelayToAccessClientMessage(
                     inner=RtAErrorMessage(message="Invalid access client secret")
@@ -54,12 +45,12 @@ class NetworkRelayForAccessClients(NetworkRelay):
     ):
         #  check if we know the agent
         if start_message.name not in self.credentials["edge-agents"]:
-            eprint(f"Unknown agent: {start_message.name}")
+            error("Unknown agent: %s", start_message.name)
             return None
 
         # check if the secret is correct
         if self.credentials["edge-agents"][start_message.name] != start_message.secret:
-            eprint(f"Invalid secret for agent: {start_message.name}")
+            error("Invalid secret for agent: %s", start_message.name)
             return None
 
         return start_message.name
