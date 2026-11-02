@@ -139,6 +139,7 @@ def test_can_run_and_proxy_tcp():
         ],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
     )
 
     access_client.stdin.write(b"hello\n")
@@ -160,6 +161,13 @@ def test_can_run_and_proxy_tcp():
     access_client.wait()
 
     assert response == b"olleh\n"
+
+    # The access client runs as an SSH ProxyCommand. Its stderr must stay quiet
+    # during a normal session; diagnostics are opt-in via
+    # HTTP_NETWORK_RELAY_LOG_LEVEL.
+    access_client_stderr = access_client.stderr.read()
+    assert b"Sent start message" not in access_client_stderr
+    assert b"Received OK message" not in access_client_stderr
 
 
 def test_binary_frame_roundtrip():

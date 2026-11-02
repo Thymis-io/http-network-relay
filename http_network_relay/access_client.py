@@ -1,6 +1,5 @@
 import asyncio
 import base64
-import os
 import sys
 from typing import Literal, Union
 
@@ -8,6 +7,7 @@ import websockets
 from pydantic import BaseModel, Field
 from websockets.asyncio.client import connect
 
+from .logging_utils import debug, error, info, warning
 from .pydantic_models import READ_CHUNK_SIZE
 
 
@@ -51,16 +51,6 @@ class RtATCPDataMessage(BaseModel):
     data_base64: str
 
 
-debug = False
-if os.getenv("DEBUG") == "1":
-    debug = True
-
-
-def eprint(*args, only_debug=False, **kwargs):
-    if (debug and only_debug) or (not only_debug):
-        print(*args, file=sys.stderr, **kwargs)
-
-
 class AccessClient:
     def __init__(
         self,
@@ -98,7 +88,7 @@ class AccessClient:
                 )
             )
             await websocket.send(start_message.model_dump_json())
-            eprint(f"Sent start message: {start_message}")
+            debug("Sent start message: %s", start_message)
             start_response_json = await websocket.recv()
             start_response = RelayToAccessClientMessage.model_validate_json(
                 start_response_json
@@ -108,12 +98,12 @@ class AccessClient:
                 relay_supports_binary = getattr(
                     start_response.inner, "supports_binary", False
                 )
-                eprint(f"Received OK message: {start_response}")
+                info("Received OK message: %s", start_response)
             elif isinstance(start_response.inner, RtAErrorMessage):
-                eprint(f"Received error message: {start_response}")
+                error("Received error message: %s", start_response)
                 return
             else:
-                eprint(f"Received unknown message: {start_response}")
+                warning("Received unknown message: %s", start_response)
                 return
 
             # start async coroutine to read stdin and send it to the server
@@ -143,33 +133,30 @@ class AccessClient:
                 try:
                     json_data = await websocket.recv()
                 except websockets.exceptions.ConnectionClosedError as e:
-                    eprint(f"Connection closed: Error: {e}")
+                    warning("Connection closed with error: %s", e)
                     break
                 except websockets.exceptions.ConnectionClosedOK as e:
-                    eprint(f"Connection closed: OK: {e}")
+                    info("Connection closed: OK: %s", e)
                     break
                 if isinstance(json_data, (bytes, bytearray)):
                     sys.stdout.buffer.write(json_data)
                     sys.stdout.flush()
                     continue
                 message = RelayToAccessClientMessage.model_validate_json(json_data)
-                eprint(f"Received message: {message}", only_debug=True)
+                debug("Received message: %s", message)
                 if isinstance(message.inner, RtATCPDataMessage):
                     tcp_data_message = message.inner
-                    eprint(
-                        f"Received TCP data message: {tcp_data_message}",
-                        only_debug=True,
-                    )
+                    debug("Received TCP data message: %s", tcp_data_message)
                     sys.stdout.buffer.write(
                         base64.b64decode(tcp_data_message.data_base64)
                     )
                     sys.stdout.flush()
                 elif isinstance(message.inner, RtAErrorMessage):
-                    eprint(f"Received error message: {message}")
+                    error("Received error message: %s", message)
                 else:
-                    eprint(f"Unknown message received: {message}")
+                    warning("Unknown message received: %s", message)
 
-            eprint("Exiting")
+            info("Exiting")
             read_stdin_and_send_task.cancel()
 
     def run(self):

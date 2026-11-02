@@ -19,6 +19,22 @@ It can also be used as a general purpose proxy command for other protocols.
 If you're using `uv`, you can use this project directly by running `uvx --from git+https://github.com/Thymis-io/http-network-relay <command> [args...]`.
 Where `<command>` is one of `network-relay`, `edge-agent` or `access-client`.
 
+## Logging
+
+`edge-agent` and `access-client` write diagnostics to stderr and are quiet by default,
+so `access-client` can be used as an SSH `ProxyCommand` without writing into the session.
+Set `HTTP_NETWORK_RELAY_LOG_LEVEL` to control the output:
+
+| Value            | Output                                                        |
+| ---------------- | ------------------------------------------------------------- |
+| `error`          | Errors only                                                   |
+| `warning`        | Errors and warnings (default)                                 |
+| `info`           | Also connection lifecycle messages (connect, close, retries)  |
+| `debug`          | Also protocol payloads and start messages                     |
+
+Values are case-insensitive. `debug` output includes start messages, which contain
+agent and access-client secrets, so do not enable it in shared logs.
+
 ## Server Configuration and Usage
 
 The **Network Relay** server binary is designed to operate on a machine with a public IP address. For enhanced security, it is recommended to deploy the server behind a reverse proxy that handles TLS termination, ensuring that clients can verify the server's identity.
